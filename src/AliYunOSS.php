@@ -1,20 +1,20 @@
 <?php
 /**
  * Created by PhpStorm.
- * User: Lenovo
- * Date: 2017/3/3
+ * User: dungang
+ * Date: 2017/3/21
  * Time: 16:46
  */
 
 namespace dungang\storage\components;
 
 
+use OSS\OssClient;
 use yii\helpers\BaseFileHelper;
 
 /**
- * @var $result \Aliyun\OSS\Models\InitiateMultipartUploadResult
- * @var $partResult  \Aliyun\OSS\Models\UploadPartResult
- * @var $clientClass  string| \Aliyun\OSS\OSSClient
+ * Class AliYunOSS
+ * @package dungang\storage\components
  */
 class AliYunOSS extends Storage
 {
@@ -37,7 +37,7 @@ class AliYunOSS extends Storage
     public $config;
 
     /**
-     * @var \Aliyun\OSS\OSSClient
+     * @var \OSS\OSSClient
      */
     protected $client;
 
@@ -54,20 +54,11 @@ class AliYunOSS extends Storage
         if (empty($this->config)) {
             $this->config = \Yii::$app->params[$this->paramKey];
         }
-        $JohnLuiOSS = '\JohnLui\AliyunOSS\AliyunOSS';
-        $clientClass= '\Aliyun\OSS\OSSClient';
-        //由于JohnLuiOSS的ossClient不是公开属性，所以先实例化，加载文件
-        $JohnLuiOSS::boot(
-            $this->config['EndPoint'],
+        $this->client = new OssClient(
             $this->config['AccessKeyId'],
-            $this->config['AccessKeySecret']
+            $this->config['AccessKeySecret'],
+            $this->config['EndPoint']
         );
-        //再次实例化 OssClient
-        $this->client = $clientClass::factory([
-            self::ENDPOINT => $this->config['EndPoint'],
-            self::ACCESS_KEY_ID       => $this->config['AccessKeyId'],
-            self::ACCESS_KEY_SECRET   => $this->config['AccessKeySecret'],
-        ]);
 
         $this->bucket = $this->config['Bucket'];
         $this->extraData = json_decode($this->extraData,JSON_UNESCAPED_UNICODE);
@@ -96,53 +87,44 @@ class AliYunOSS extends Storage
         $minChunkSize = 100 * 1024;
         if(intval($this->size) >= $minChunkSize && $this->chunked) {
             if ($this->chunk == 0 ) {
-                $result = $this->client->initiateMultipartUpload([
-                    self::BUCKET =>$this->bucket,
-                    self::KEY => $key
-                ]);
-                if ($result) {
-                    $this->extraData[self::UPLOAD_ID] = $result->getUploadId();
+                $uploadId = $this->client->initiateMultipartUpload(
+                    $this->bucket, $key);
+                if ($uploadId) {
+                    $this->extraData[OssClient::OSS_UPLOAD_ID] = $uploadId;
                 }
             }
-            $handle = fopen($this->file->tempName, 'r');
-            $objResult = $this->client->uploadPart([
-                    self::BUCKET => $this->bucket,
-                    self::KEY => $key,
-                    self::UPLOAD_ID => $this->extraData[self::UPLOAD_ID],
-                    self::CONTENT => $handle,
-                    self::PART_NUMBER => $partNumber,
-                    self::PART_SIZE => $this->chunkFileSize
-            ]);
-            fclose($handle);
-            if ($objResult && $objResult->getETag()){
+            $content = file_get_contents($this->file->tempName);
+            $eTag = $this->client->uploadPart(
+                    $this->bucket, $key, $this->extraData[self::UPLOAD_ID],
+                    [
+                        OssClient::OSS_CONTENT => $content,
+                        OssClient::OSS_PART_NUM => $partNumber,
+                        OssClient::OSS_PART_SIZE=> $this->chunkFileSize
+                    ]);
+
+            if ($eTag){
 
                 $this->extraData[self::PART_ETAGS][] = [
                     self::PART_NUMBER=>$partNumber,
-                    self::PART_ETAG => $objResult->getETag()
+                    self::PART_ETAG => $eTag
                 ];
 
                 if ($partNumber == $this->chunks) {
-                    $this->client->completeMultipartUpload([
-                        self::BUCKET => $this->bucket,
-                        self::KEY => $key,
-                        self::UPLOAD_ID => $this->extraData[self::UPLOAD_ID],
-                        self::PART_ETAGS => $this->extraData[self::PART_ETAGS]
-                    ]);
+                    $this->client->completeMultipartUpload(
+                        $this->bucket, $key, $this->extraData[self::UPLOAD_ID],
+                        $this->extraData[self::PART_ETAGS]);
                 }
                 return $key;
             }
 
         } else {
-            $handle = fopen($this->file->tempName, 'r');
-            $objResult = $this->client->putObject([
-                self::BUCKET => $this->bucket,
-                self::KEY => $key,
-                self::CONTENT => $handle,
-                'ContentLength' => $this->chunkFileSize,
-            ]);
-            fclose($handle);
+            $content = file_get_contents($this->file->tempName);
+            $eTag = $this->client->putObject(
+                $this->bucket,$key,$content,
+                [OssClient::OSS_LENGTH => $this->chunkFileSize]
+            );
 
-            if ($objResult && $objResult->getETag()){
+            if ($eTag){
                 return $key;
             }
         }
@@ -152,10 +134,7 @@ class AliYunOSS extends Storage
     public function deleteFile($file)
     {
         $key = BaseFileHelper::normalizePath(ltrim($file,'/\\'),'/');
-        $this->client->deleteObject([
-            self::BUCKET => $this->bucket,
-            self::KEY => $key,
-        ]);
+        $this->client->deleteObject( $this->bucket, $key);
         return true;
     }
 }
