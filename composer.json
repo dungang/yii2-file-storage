@@ -1,0 +1,24 @@
+{
+  "name": "dungang/file-storage",
+  "description": "文件存储集合，本地存储，阿里云oss，七牛 ",
+  "license": "MIT",
+  "minimum-stability": "dev",
+  "authors": [
+    {
+      "name": "dun gang",
+      "email": "dungang@126.com",
+      "homepage": "https://github.com/dungang",
+      "role": "Creator"
+    }
+  ],
+  "require": {
+    "php": ">=5.4.0",
+    "aliyuncs/oss-sdk-php": "~2.0",
+    "qiniu/php-sdk": "~v7.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "dungang\\storage\\": "src"
+    }
+  }
+}
