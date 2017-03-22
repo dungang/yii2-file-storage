@@ -116,6 +116,7 @@ abstract class Driver extends Component
     public function loadPostData($post)
     {
         $props = get_object_vars($this);
+
         foreach($props as $prop=>$def) {
             if (isset($post[$prop])) {
                 $this->$prop = $post[$prop];
@@ -123,8 +124,11 @@ abstract class Driver extends Component
                 $this->$prop = $def;
             }
         }
-
-        $this->extraData = json_decode($this->extraData, JSON_UNESCAPED_UNICODE);
+        if (empty($this->extraData)) {
+            $this->extraData = [];
+        } else {
+            $this->extraData = json_decode($this->extraData, JSON_UNESCAPED_UNICODE);
+        }
     }
 
 

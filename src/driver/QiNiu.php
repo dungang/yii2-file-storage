@@ -11,6 +11,7 @@ namespace dungang\storage\driver;
 use dungang\storage\Driver;
 use dungang\storage\driver\qiniu\ResumeUploader;
 use Qiniu\Auth;
+use Qiniu\Storage\BucketManager;
 use Qiniu\Storage\UploadManager;
 use yii\helpers\BaseFileHelper;
 
@@ -47,7 +48,7 @@ class QiNiu extends Driver
 
         $this->extraData = json_decode($this->extraData, JSON_UNESCAPED_UNICODE);
 
-        if ($this->chunks > 0) {
+        if ($this->chunks > 0 && $this->size > $this->chunkSize) {
             $this->chunked = true;
         }
     }
@@ -112,13 +113,12 @@ class QiNiu extends Driver
             }
 
         } else {
-
             $manager = new UploadManager();
             $rst = $manager->putFile(
                 $token,
                 $object,
-                null,
                 $this->file->tempName,
+                null,
                 $this->file->type
             );
 
@@ -132,7 +132,10 @@ class QiNiu extends Driver
     public function deleteFile($file)
     {
         $object = BaseFileHelper::normalizePath(ltrim($file, '/\\'), '/');
-        $this->client->deleteObject($this->bucket, $object);
+        $bucketManager = new BucketManager($this->auth);
+        if($bucketManager->delete($this->bucket, $object)) {
+            return false;
+        }
         return true;
     }
 
