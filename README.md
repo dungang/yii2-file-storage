@@ -142,6 +142,15 @@ class Local extends Driver
 }
 ```
 
+> 修改 php.ini
+
+```
+## 七牛存储必须设置为4m 所以 至少是4m
+upload_max_filesize = 4M  
+post_max_size = 8M
+
+```
+
 > 注意事项
 
 - 本模块对qiniu存储的分片上传功能做了重构。保留之前的类。
