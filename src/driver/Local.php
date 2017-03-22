@@ -9,8 +9,9 @@
 namespace dungang\storage\components;
 
 use yii\helpers\BaseFileHelper;
+use dungang\storage\Driver;
 
-class Local extends Storage
+class Local extends Driver
 {
     /**
      * @return bool|string

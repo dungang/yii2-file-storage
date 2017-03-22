@@ -6,13 +6,13 @@
  * Time: 11:19
  */
 
-namespace dungang\storage\components;
+namespace dungang\storage;
 
 
 use yii\base\Component;
 use yii\web\UploadedFile;
 
-abstract class Storage extends Component
+abstract class Driver extends Component
 {
     const EVENT_BEFORE_INIT_UPLOADER = 'beforeInitUploader';
     const EVENT_BEFORE_WRITE_FILE = 'beforeWriteFile';

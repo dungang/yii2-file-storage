@@ -6,7 +6,7 @@
  * Time: 9:00
  */
 
-namespace dungang\storage\components;
+namespace dungang\storage;
 
 
 use yii\base\Event;

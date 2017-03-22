@@ -6,31 +6,21 @@
  * Time: 16:46
  */
 
-namespace dungang\storage\components;
+namespace dungang\storage\driver;
 
 
 use OSS\OssClient;
 use yii\helpers\BaseFileHelper;
+use dungang\storage\Driver;
 
 /**
  * Class AliYunOSS
  * @package dungang\storage\components
  */
-class AliYunOSS extends Storage
+class AliYunOSS extends Driver
 {
 
-    const CONTENT = 'Content';
-    const BUCKET = 'Bucket';
-    const KEY = 'Key';
-    const UPLOAD_ID = 'UploadId';
-    const PART_NUMBER = 'PartNumber';
-    const PART_SIZE = 'PartSize';
-    const PART_ETAG = 'ETag';
     const PART_ETAGS = 'PartETags';
-
-    const ACCESS_KEY_ID = 'AccessKeyId';
-    const ACCESS_KEY_SECRET = 'AccessKeySecret';
-    const ENDPOINT = 'Endpoint';
 
     public $paramKey = 'oss';
 
@@ -95,7 +85,7 @@ class AliYunOSS extends Storage
             }
             $content = file_get_contents($this->file->tempName);
             $eTag = $this->client->uploadPart(
-                    $this->bucket, $key, $this->extraData[self::UPLOAD_ID],
+                    $this->bucket, $key, $this->extraData[OssClient::OSS_UPLOAD_ID],
                     [
                         OssClient::OSS_CONTENT => $content,
                         OssClient::OSS_PART_NUM => $partNumber,
@@ -105,13 +95,13 @@ class AliYunOSS extends Storage
             if ($eTag){
 
                 $this->extraData[self::PART_ETAGS][] = [
-                    self::PART_NUMBER=>$partNumber,
-                    self::PART_ETAG => $eTag
+                    OssClient::OSS_PART_NUM=>$partNumber,
+                    OssClient::OSS_ETAG => $eTag
                 ];
 
                 if ($partNumber == $this->chunks) {
                     $this->client->completeMultipartUpload(
-                        $this->bucket, $key, $this->extraData[self::UPLOAD_ID],
+                        $this->bucket, $key, $this->extraData[OssClient::OSS_UPLOAD_ID],
                         $this->extraData[self::PART_ETAGS]);
                 }
                 return $key;
