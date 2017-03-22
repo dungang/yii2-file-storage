@@ -54,11 +54,11 @@ class Local extends Driver
                     flock($out, LOCK_UN);
                 }
                 @fclose($out);
-                return BaseFileHelper::normalizePath( $dir . DIRECTORY_SEPARATOR . $file);
+                return $this->response(BaseFileHelper::normalizePath( $dir . DIRECTORY_SEPARATOR . $file));
             }
 
         }
-        return false;
+        return $this->response(null,500,'Upload failed');
     }
 
     public function deleteFile($file)
@@ -72,4 +72,16 @@ class Local extends Driver
         }
         return false;
     }
+
+    public function getSourceUrl($object)
+    {
+        return \Yii::$app->basePath . '/' . ltrim($object,'/');
+    }
+
+    public function getBindUrl($object)
+    {
+        return $this->getSourceUrl($object);
+    }
+
+
 }

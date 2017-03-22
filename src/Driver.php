@@ -88,13 +88,14 @@ abstract class Driver extends Component
     /**
      * @var string 文件保存路径
      */
-    public $saveDir = 'upload/file';
+    public $saveDir = 'upload/storage';
 
 
     /**
      * @var mixed 额外的参数
      */
     public $extraData = '{}';
+
 
     /**
      * final的目的是防止被覆盖
@@ -110,6 +111,22 @@ abstract class Driver extends Component
      * 上传驱动的初始化方法
      */
     public function initUploader(){}
+
+
+    public function loadPostData($post)
+    {
+        $props = get_object_vars($this);
+        foreach($props as $prop=>$def) {
+            if (isset($post[$prop])) {
+                $this->$prop = $post[$prop];
+            } else {
+                $this->$prop = $def;
+            }
+        }
+
+        $this->extraData = json_decode($this->extraData, JSON_UNESCAPED_UNICODE);
+    }
+
 
     /**
      *  主要用在上传文件初始化，删除文件不需要。
@@ -159,6 +176,31 @@ abstract class Driver extends Component
      * @return mixed
      */
     abstract public function deleteFile($file);
+
+    /**
+     * 获取原始的对象访问地址
+     * @param $object
+     * @return string|null|false;
+     */
+    abstract public function getSourceUrl($object);
+
+
+    /**
+     * 获取绑定域名的对象访问地址
+     * @param $object
+     * @return string|null|false;
+     */
+    abstract public function getBindUrl($object);
+
+
+    public function response($object=null,$code=0,$message=null)
+    {
+        return [
+            'code'=>$code,
+            'message'=>$message,
+            'object' => $object,
+        ];
+    }
 
     /**
      * @return string 生产guid

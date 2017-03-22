@@ -51,7 +51,6 @@ class AliYunOSS extends Driver
         );
 
         $this->bucket = $this->config['Bucket'];
-        $this->extraData = json_decode($this->extraData, JSON_UNESCAPED_UNICODE);
 
         if ($this->chunks > 0) {
             $this->chunked = true;
@@ -100,14 +99,21 @@ class AliYunOSS extends Driver
                 ];
 
                 if ($partNumber == $this->chunks) {
-                    $this->client->completeMultipartUpload(
+                    $rst = $this->client->completeMultipartUpload(
                         $this->bucket,
                         $object,
                         $this->extraData[OssClient::OSS_UPLOAD_ID],
                         $this->extraData[self::PART_ETAGS]
                     );
+                    if ($rst) {
+                        return $this->response($object);
+                    } else {
+                        return $this->response(null,500,'Upload error');
+                    }
                 }
-                return $object;
+                return $this->response($object);
+            } else {
+                return $this->response(null,500,'Upload error');
             }
 
         } else {
@@ -120,17 +126,29 @@ class AliYunOSS extends Driver
             );
 
             if ($eTag) {
-                return $object;
+                return $this->response($object);
+            } else {
+                return $this->response(null,500,'Upload error');
             }
         }
-        return false;
     }
 
     public function deleteFile($file)
     {
         $object = BaseFileHelper::normalizePath(ltrim($file, '/\\'), '/');
-        var_dump($object);die;
         $this->client->deleteObject($this->bucket, $object);
         return true;
     }
+
+    public function getSourceUrl($object)
+    {
+        return $this->config['sourceBaseUrl'] .  '/' . ltrim($object,'/');
+    }
+
+    public function getBindUrl($object)
+    {
+        return $this->config['bindBaseUrl'] .  '/' . ltrim($object,'/');
+    }
+
+
 }
