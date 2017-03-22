@@ -51,7 +51,7 @@ class AliYunOSS extends Driver
         );
 
         $this->bucket = $this->config['Bucket'];
-        $this->extraData = json_decode($this->extraData,JSON_UNESCAPED_UNICODE);
+        $this->extraData = json_decode($this->extraData, JSON_UNESCAPED_UNICODE);
 
         if ($this->chunks > 0) {
             $this->chunked = true;
@@ -67,55 +67,60 @@ class AliYunOSS extends Driver
 
         $file = $fileName . '.' . $this->file->extension;
 
-        $dir = $this->saveDir .DIRECTORY_SEPARATOR. date('Y-m-d');
+        $dir = $this->saveDir . DIRECTORY_SEPARATOR . date('Y-m-d');
 
         $partNumber = 1 + $this->chunk;
         //aliyun oss 路径分隔符用'/'
-        $key = BaseFileHelper::normalizePath($dir . DIRECTORY_SEPARATOR . $file,'/');
+        $object = BaseFileHelper::normalizePath($dir . DIRECTORY_SEPARATOR . $file, '/');
 
         //除了最后一块Part，其他Part的大小不能小于100KB，否则会导致在调用CompleteMultipartUpload接口的时候失败
         $minChunkSize = 100 * 1024;
-        if(intval($this->size) >= $minChunkSize && $this->chunked) {
-            if ($this->chunk == 0 ) {
+        if (intval($this->size) >= $minChunkSize && $this->chunked) {
+            if ($this->chunk == 0) {
                 $uploadId = $this->client->initiateMultipartUpload(
-                    $this->bucket, $key);
+                    $this->bucket, $object);
                 if ($uploadId) {
                     $this->extraData[OssClient::OSS_UPLOAD_ID] = $uploadId;
                 }
             }
-            $content = file_get_contents($this->file->tempName);
             $eTag = $this->client->uploadPart(
-                    $this->bucket, $key, $this->extraData[OssClient::OSS_UPLOAD_ID],
-                    [
-                        OssClient::OSS_CONTENT => $content,
-                        OssClient::OSS_PART_NUM => $partNumber,
-                        OssClient::OSS_PART_SIZE=> $this->chunkFileSize
-                    ]);
-
-            if ($eTag){
+                $this->bucket,
+                $object,
+                $this->extraData[OssClient::OSS_UPLOAD_ID],
+                [
+                    OssClient::OSS_FILE_UPLOAD => $this->file->tempName,
+                    OssClient::OSS_PART_NUM => $partNumber,
+                    OssClient::OSS_LENGTH => $this->chunkFileSize
+                ]);
+            if ($eTag) {
 
                 $this->extraData[self::PART_ETAGS][] = [
-                    OssClient::OSS_PART_NUM=>$partNumber,
-                    OssClient::OSS_ETAG => $eTag
+                    'PartNumber' => $partNumber,
+                    'ETag'=> $eTag
                 ];
 
                 if ($partNumber == $this->chunks) {
                     $this->client->completeMultipartUpload(
-                        $this->bucket, $key, $this->extraData[OssClient::OSS_UPLOAD_ID],
-                        $this->extraData[self::PART_ETAGS]);
+                        $this->bucket,
+                        $object,
+                        $this->extraData[OssClient::OSS_UPLOAD_ID],
+                        $this->extraData[self::PART_ETAGS]
+                    );
                 }
-                return $key;
+                return $object;
             }
 
         } else {
             $content = file_get_contents($this->file->tempName);
             $eTag = $this->client->putObject(
-                $this->bucket,$key,$content,
+                $this->bucket, 
+                $object, 
+                $content,
                 [OssClient::OSS_LENGTH => $this->chunkFileSize]
             );
 
-            if ($eTag){
-                return $key;
+            if ($eTag) {
+                return $object;
             }
         }
         return false;
@@ -123,8 +128,9 @@ class AliYunOSS extends Driver
 
     public function deleteFile($file)
     {
-        $key = BaseFileHelper::normalizePath(ltrim($file,'/\\'),'/');
-        $this->client->deleteObject( $this->bucket, $key);
+        $object = BaseFileHelper::normalizePath(ltrim($file, '/\\'), '/');
+        var_dump($object);die;
+        $this->client->deleteObject($this->bucket, $object);
         return true;
     }
 }
