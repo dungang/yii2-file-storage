@@ -6,8 +6,9 @@
  * Time: 11:24
  */
 
-namespace dungang\storage\components;
+namespace dungang\storage\driver;
 
+use dungang\storage\File;
 use yii\helpers\BaseFileHelper;
 use dungang\storage\Driver;
 
@@ -32,12 +33,16 @@ class Local extends Driver
         {
             $targetFile = $path . DIRECTORY_SEPARATOR . $file;
             if($this->chunked) {
+                $this->triggerEvent = false;
                 if ($this->chunk === 0 ) {
                     $position = 0;
                     if (file_exists($targetFile)) {
                         @unlink($targetFile);
                     }
-                } else {
+                } else  {
+                    if ($this->chunk + 1 == $this->chunks) {
+                        $this->triggerEvent = true;
+                    }
                     $position = $this->chunkSize * $this->chunk;
                 }
             }
@@ -75,7 +80,8 @@ class Local extends Driver
 
     public function getSourceUrl($object)
     {
-        return \Yii::$app->basePath . '/' . ltrim($object,'/');
+        //return \Yii::$app->request->baseUrl . '/' . ltrim($object,'/');
+        return ltrim($object,'/');
     }
 
     public function getBindUrl($object)

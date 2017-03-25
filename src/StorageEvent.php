@@ -14,7 +14,7 @@ use yii\base\Event;
 class StorageEvent extends Event
 {
     /**
-     * @var string
+     * @var File
      */
     public $file;
 

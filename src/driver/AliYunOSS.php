@@ -22,9 +22,7 @@ class AliYunOSS extends Driver
 
     const PART_ETAGS = 'PartETags';
 
-    public $paramKey = 'oss';
-
-    public $config;
+    public $_driverName = 'oss';
 
     /**
      * @var \OSS\OSSClient
@@ -37,24 +35,17 @@ class AliYunOSS extends Driver
     public $bucket;
 
     /**
-     *  可以添加行为来初始化config,如果config为空则通过 如：params[oss]获取
+     *  可以添加行为来初始化config,如果config为空则通过 如：params[storage][oss]获取
      */
     public function initUploader()
     {
-        if (empty($this->config)) {
-            $this->config = \Yii::$app->params[$this->paramKey];
-        }
         $this->client = new OssClient(
             $this->config['AccessKeyId'],
             $this->config['AccessKeySecret'],
             $this->config['EndPoint']
         );
-
         $this->bucket = $this->config['Bucket'];
-
-        if ($this->chunks > 0) {
-            $this->chunked = true;
-        }
+        $this->saveDir = $this->_driverName;
     }
 
     /**
@@ -75,6 +66,7 @@ class AliYunOSS extends Driver
         //除了最后一块Part，其他Part的大小不能小于100KB，否则会导致在调用CompleteMultipartUpload接口的时候失败
         $minChunkSize = 100 * 1024;
         if (intval($this->size) >= $minChunkSize && $this->chunked) {
+            $this->triggerEvent = false;
             if ($this->chunk == 0) {
                 $uploadId = $this->client->initiateMultipartUpload(
                     $this->bucket, $object);
@@ -82,7 +74,7 @@ class AliYunOSS extends Driver
                     $this->extraData[OssClient::OSS_UPLOAD_ID] = $uploadId;
                 }
             }
-            $eTag = $this->client->uploadPart(
+            $this->_eTag = $this->client->uploadPart(
                 $this->bucket,
                 $object,
                 $this->extraData[OssClient::OSS_UPLOAD_ID],
@@ -91,63 +83,63 @@ class AliYunOSS extends Driver
                     OssClient::OSS_PART_NUM => $partNumber,
                     OssClient::OSS_LENGTH => $this->chunkFileSize
                 ]);
-            if ($eTag) {
+            if ($this->_eTag) {
 
                 $this->extraData[self::PART_ETAGS][] = [
                     'PartNumber' => $partNumber,
-                    'ETag'=> $eTag
+                    'ETag' => $this->_eTag
                 ];
 
                 if ($partNumber == $this->chunks) {
-                    $rst = $this->client->completeMultipartUpload(
+                    $this->_eTag = $this->client->completeMultipartUpload(
                         $this->bucket,
                         $object,
                         $this->extraData[OssClient::OSS_UPLOAD_ID],
                         $this->extraData[self::PART_ETAGS]
                     );
-                    if ($rst) {
+                    if ($this->_eTag) {
+                        $this->triggerEvent = true;
                         return $this->response($object);
                     } else {
-                        return $this->response(null,500,'Upload error');
+                        return $this->response(null,500,'Server error');
                     }
                 }
                 return $this->response($object);
             } else {
-                return $this->response(null,500,'Upload error');
+                return $this->response(null,500,'Server error');
             }
 
         } else {
             $content = file_get_contents($this->file->tempName);
-            $eTag = $this->client->putObject(
-                $this->bucket, 
-                $object, 
+            $this->_eTag = $this->client->putObject(
+                $this->bucket,
+                $object,
                 $content,
                 [OssClient::OSS_LENGTH => $this->chunkFileSize]
             );
 
-            if ($eTag) {
+            if ($this->_eTag) {
                 return $this->response($object);
             } else {
-                return $this->response(null,500,'Upload error');
+                return $this->response(null,500,'Server error');
             }
         }
     }
 
-    public function deleteFile($file)
+    public function deleteFile($object)
     {
-        $object = BaseFileHelper::normalizePath(ltrim($file, '/\\'), '/');
         $this->client->deleteObject($this->bucket, $object);
         return true;
     }
 
     public function getSourceUrl($object)
     {
-        return $this->config['sourceBaseUrl'] .  '/' . ltrim($object,'/');
+        return $this->config['sourceBaseUrl'] . '/' . ltrim($object, '/');
     }
 
     public function getBindUrl($object)
     {
-        return $this->config['bindBaseUrl'] .  '/' . ltrim($object,'/');
+        return $this->config['bindBaseUrl'] . '/' . ltrim($object, '/');
     }
 
 
