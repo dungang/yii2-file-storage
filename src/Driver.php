@@ -84,7 +84,7 @@ abstract class Driver extends Component
     /**
      * @var string 文件唯一id WU_FILE_0
      */
-    public $id;
+    public $id='';
 
     /**
      * @var UploadedFile
@@ -218,6 +218,9 @@ abstract class Driver extends Component
 
         if (intval($this->chunks) > 0 && intval($this->size) > intval($this->chunkSize)) {
             $this->chunked = true;
+        }
+        if(empty($this->guid)) {
+            $this->guid = self::guid();
         }
     }
 
@@ -443,16 +446,40 @@ abstract class Driver extends Component
     /**
      * @return string 生产guid
      */
-    static public function guid() {
-        $charid = strtoupper(md5(uniqid(mt_rand(), true)));
-        $hyphen = chr(45);// "-"
-        $uuid = chr(123)// "{"
-            .substr($charid, 0, 8).$hyphen
-            .substr($charid, 8, 4).$hyphen
-            .substr($charid,12, 4).$hyphen
-            .substr($charid,16, 4).$hyphen
-            .substr($charid,20,12)
-            .chr(125);// "}"
-        return $uuid;
+//    static public function guid() {
+//        $charid = strtoupper(md5(uniqid(mt_rand(), true)));
+//        $hyphen = chr(45);// "-"
+//        $uuid = chr(123)// "{"
+//            .substr($charid, 0, 8).$hyphen
+//            .substr($charid, 8, 4).$hyphen
+//            .substr($charid,12, 4).$hyphen
+//            .substr($charid,16, 4).$hyphen
+//            .substr($charid,20,12)
+//            .chr(125);// "}"
+//        return $uuid;
+//    }
+
+    public static function guid() {
+        //from stack overflow.
+        return sprintf( '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            // 32 bits for "time_low"
+            mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ),
+
+            // 16 bits for "time_mid"
+            mt_rand( 0, 0xffff ),
+
+            // 16 bits for "time_hi_and_version",
+            // four most significant bits holds version number 4
+            mt_rand( 0, 0x0fff ) | 0x4000,
+
+            // 16 bits, 8 bits for "clk_seq_hi_res",
+            // 8 bits for "clk_seq_low",
+            // two most significant bits holds zero and one for variant DCE1.1
+            mt_rand( 0, 0x3fff ) | 0x8000,
+
+            // 48 bits for "node"
+            mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff )
+        );
     }
+
 }

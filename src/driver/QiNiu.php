@@ -52,9 +52,7 @@ class QiNiu extends Driver
             $token = $this->extraData['upToken'];
         }
 
-        $fileName = md5($this->guid . $this->id);
-
-        $file = $fileName . '.' . $this->file->extension;
+        $file = $this->guid . '.' . $this->file->extension;
 
         $dir = $this->saveDir . DIRECTORY_SEPARATOR . date('Y-m-d');
 
