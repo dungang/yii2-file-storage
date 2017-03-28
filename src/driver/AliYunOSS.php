@@ -45,18 +45,13 @@ class AliYunOSS extends Driver
             $this->config['EndPoint']
         );
         $this->bucket = $this->config['Bucket'];
-        $this->saveDir = $this->_driverName;
     }
 
     /**
      * @return bool|string
      */
-    public function writeFile()
+    public function writeFile($file,$dir)
     {
-        $file = $this->guid . '.' . $this->file->extension;
-
-        $dir = $this->saveDir . DIRECTORY_SEPARATOR . date('Y-m-d');
-
         $partNumber = 1 + $this->chunk;
         //aliyun oss 路径分隔符用'/'
         $object = BaseFileHelper::normalizePath($dir . DIRECTORY_SEPARATOR . $file, '/');
@@ -129,6 +124,46 @@ class AliYunOSS extends Driver
         $this->client->deleteObject($this->bucket, $object);
         return true;
     }
+
+    /**
+     * @param int|string|null $start
+     * @param int $size
+     * @return array
+     */
+    public function listFiles($start = null, $size = 10)
+    {
+        if($start === 0 ) $start = null;
+        $result = [
+            "code" => 0
+        ];
+        try{
+            /* @var $listInfo \OSS\Model\ObjectListInfo*/
+            $listInfo = $this->client->listObjects($this->bucket,[
+                'max-keys'=>$size,
+                'prefix'=>$this->getSavePath(),
+                'marker'=>$start
+            ]);
+
+            $result['list'] = $this->formatListObject($listInfo->getObjectList());
+            $result['start'] = $listInfo->getNextMarker();
+        } catch (\Exception $e) {
+            $result['code'] = self::ERROR_FILE_NOT_FOUND;
+            $result['message'] = "no match file";
+        }
+        return $result;
+    }
+
+
+    protected function formatListObject($items)
+    {
+        return array_map(function($item){
+            return [
+                'object'=>$item->key,
+                'url'=>$this->getBindUrl($item->key)
+            ];
+        },$items);
+    }
+
 
     public function getSourceUrl($object)
     {

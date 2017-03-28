@@ -39,11 +39,10 @@ class QiNiu extends Driver
             $this->config['SecretKey']
         );
         $this->bucket = $this->config['Bucket'];
-        $this->saveDir = $this->_driverName;
     }
 
 
-    public function writeFile()
+    public function writeFile($file,$dir)
     {
         if (empty($this->extraData['upToken'])) {
             $token = $this->auth->uploadToken($this->bucket);
@@ -51,10 +50,6 @@ class QiNiu extends Driver
         } else {
             $token = $this->extraData['upToken'];
         }
-
-        $file = $this->guid . '.' . $this->file->extension;
-
-        $dir = $this->saveDir . DIRECTORY_SEPARATOR . date('Y-m-d');
 
         //aliyun oss 路径分隔符用'/'
         $object = BaseFileHelper::normalizePath($dir . DIRECTORY_SEPARATOR . $file, '/');
@@ -129,6 +124,39 @@ class QiNiu extends Driver
         return true;
     }
 
+    /**
+     * @param int|string|null $start
+     * @param int $size
+     * @return array
+     */
+    public function listFiles($start = null, $size = 10)
+    {
+        if($start === 0 ) $start = null;
+        $result = [
+            "code" => 0
+        ];
+        $bucketManager = new BucketManager($this->auth);
+        $prefix = $this->getSavePath();
+        list($items,$maker,$error) = $bucketManager->listFiles($this->bucket,$prefix,$start,$size);
+        if ($error) {
+            $result['code'] = self::ERROR_FILE_NOT_FOUND;
+            $result['message'] = $error;
+        } else {
+            $result['list'] = $this->formatListObject($items);
+            $result['start'] = $maker;
+        }
+        return $result;
+    }
+
+    protected function formatListObject($items)
+    {
+        return array_map(function($item){
+            return [
+                'object'=>$item['key'],
+                'url'=>$this->getBindUrl($item['key'])
+            ];
+        },$items);
+    }
 
     public function getSourceUrl($object)
     {
