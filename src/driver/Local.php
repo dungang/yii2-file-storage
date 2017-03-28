@@ -59,7 +59,7 @@ class Local extends Driver
                     flock($out, LOCK_UN);
                 }
                 @fclose($out);
-                return $this->response(BaseFileHelper::normalizePath( $dir . DIRECTORY_SEPARATOR . $file));
+                return $this->response(BaseFileHelper::normalizePath( $dir . DIRECTORY_SEPARATOR . $file),'/');
             }
 
         }
@@ -68,8 +68,8 @@ class Local extends Driver
 
     public function deleteFile($file)
     {
-        $file = BaseFileHelper::normalizePath(ltrim($file,'/\\'));
-        $dir = BaseFileHelper::normalizePath(ltrim($this->saveDir,'/\\'));
+        $file = BaseFileHelper::normalizePath(ltrim($file,'/\\'),'/');
+        $dir = BaseFileHelper::normalizePath(ltrim($this->saveDir,'/\\'),'/');
         $prefix = substr($file,0,strlen($dir));
         if (strcasecmp($prefix,$dir)==0) {
             $path = \Yii::getAlias('@webroot') . DIRECTORY_SEPARATOR . $file;
