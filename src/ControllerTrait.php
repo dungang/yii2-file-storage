@@ -14,11 +14,6 @@ trait ControllerTrait
 {
 
     /**
-     * @var ModuleTrait
-     */
-    public $module;
-
-    /**
      * @inheritdoc
      */
     public function behaviors()
