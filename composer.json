@@ -2,7 +2,6 @@
   "name": "dungang/yii2-file-storage",
   "description": "文件存储集合，本地存储，阿里云oss，七牛 ",
   "license": "MIT",
-  "minimum-stability": "dev",
   "authors": [
     {
       "name": "dun gang",
