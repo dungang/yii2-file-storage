@@ -5,680 +5,466 @@
  * Date: 2017/3/2
  * Time: 11:19
  */
-
 namespace dungang\storage;
 
-
-use yii\base\Behavior;
 use yii\base\Component;
 use yii\helpers\BaseFileHelper;
 use yii\web\UploadedFile;
+use yii\base\Event;
+use phpDocumentor\Reflection\Types\Mixed_;
 
-abstract class Driver extends Component
+class InitRequest
 {
-    const EVENT_BEFORE_INIT_UPLOADER = 'beforeInitUploader';
-    const EVENT_BEFORE_WRITE_FILE = 'beforeWriteFile';
-    const EVENT_AFTER_WRITE_FILE = 'afterWriteFile';
-    const EVENT_BEFORE_DELETE_FILE = 'beforeDeleteFile';
-    const EVENT_AFTER_DELETE_FILE = 'afterDeleteFile';
-
-
-    public $config;
 
     /**
-     * @var int 允许上传的文件大小
+     *
+     * @var string 文件类型 image/jpeg
      */
-    public $maxFileSize = 4194304;
-
+    public $type;
 
     /**
-     * @var string 文件表单字段名称
+     *
+     * @var string 文件名称， xxx.jpg
      */
-    public $fieldName = 'file';
+    public $name;
 
     /**
-     * @var string 文件名称
+     *
+     * @var string 客户端生成的时间戳
+     */
+    public $timestamp;
+}
+
+class InitResponse
+{
+
+    /**
+     * 是否成功
+     *
+     * @var boolean
+     */
+    public $isOk = true;
+
+    public $error = '';
+
+    /**
+     *
+     * @var string 本次上传文件的服务id
+     */
+    public $uploadId;
+
+    /**
+     *
+     * @var string 最终要生成的文件路径和名称
+     */
+    public $key;
+}
+
+class ChunkRequest
+{
+
+    /**
+     *
+     * @var string 本次上传文件的服务id
+     */
+    public $uploadId = '';
+
+    /**
+     *
+     * @var string 最终要生成的文件路径和名称
+     */
+    public $key = '';
+
+    /**
+     * 原始名称
+     *
+     * @var string
      */
     public $name = '';
 
     /**
-     * @var string 文件类型
+     * 文件类型
+     *
+     * @var string
      */
     public $type = '';
 
     /**
-     * @var string 文件最后修改的时间
-     */
-    public $lastModifiedDate = '';
-
-    /**
-     * @var bool 是否分片上传文件
-     */
-    public $chunked = false;
-
-    /**
+     *
      * @var int chunk总数量
      */
     public $chunks = 1;
 
     /**
+     *
      * @var int 当前chunk编号
      */
     public $chunk = 0;
 
     /**
-     * @var int chunk的大小  5 * 1024 * 1024 = 5M
+     *
+     * @var int chunk文件的大小
      */
-    public $chunkSize = 5242880;
+    public $chunkSize = 0;
 
     /**
+     *
      * @var int 当完整的前文件实际大小
      */
     public $size = 0;
 
     /**
-     * @var int chunk实际上传大小
-     */
-    public $chunkFileSize = 0;
-
-
-    /**
-     * @var string 文件唯一id WU_FILE_0
-     */
-    public $id='';
-
-    /**
+     *
      * @var UploadedFile
      */
-    public $file;
+    public $uploadFile;
 
     /**
-     * @var string 文件保存路径
+     * 额外回传的数据
+     *
+     * @var array
      */
-    public $saveDir = 'upload/storage';
+    public $extraData;
+}
 
+class ChunkResponse
+{
 
     /**
-     * @var mixed 额外的参数
+     * 是否成功
+     *
+     * @var boolean
      */
-    public $extraData = '{}';
+    public $isOk = true;
 
+    public $error = '';
 
     /**
-     * @var array 接受的文件类型
+     *
+     * @var string 本次上传文件的服务id
      */
-    public $accept;
-
+    public $uploadId = '';
 
     /**
-     * @var StorageEvent
+     *
+     * @var string 最终要生成的文件路径和名称
      */
-    protected $event;
+    public $key = '';
 
     /**
-     * @var bool 是否可以触发事件
+     *
+     * @var boolean 是否完成
      */
-    protected $triggerEvent = true;
-
-    protected $_eTag = '';
-
-    public $_driverName = '';
-
-    public static $_drivers;
-
-
-    public static function createDefaultDriver()
-    {
-        if(empty(\Yii::$app->params['storage']) ||
-            empty(\Yii::$app->params['storage']['defaultDriver'])) {
-            $driverName = 'local';
-        } else {
-            $driverName = \Yii::$app->params['storage']['defaultDriver'];
-        }
-        return self::factory($driverName);
-    }
+    public $isCompleted = false;
 
     /**
-     * @param $driverName
-     * @return Driver
+     * 文件md5签名
+     *
+     * @var string
      */
-    public static function factory($driverName)
-    {
-        if (!empty(self::$_drivers[$driverName])) {
-            return self::$_drivers[$driverName];
-        }
-        /* @var $driver Driver */
-        if(empty(\Yii::$app->params['storage']) ||
-            empty(\Yii::$app->params['storage']['drivers']) ||
-            empty(\Yii::$app->params['storage']['drivers'][$driverName]) ||
-            empty(\Yii::$app->params['storage']['drivers'][$driverName]['class'])) {
-            $driver =  \Yii::createObject([
-                'class'=>'dungang\storage\driver\Local',
-                '_driverName'=>'local',
-                'saveDir'=>'upload/storage'
-            ]);
-        } else {
-            $params = \Yii::$app->params['storage']['drivers'][$driverName];
-            $class = $params['class'];
-            $driver =  \Yii::createObject([
-                'class'=>$class,
-                '_driverName'=>$driverName,
-                'saveDir'=> isset($params['saveDir'])?$params['saveDir']:'upload/storage',
-                'config' => $params
-            ]);
-        }
-
-        if (!empty(\Yii::$app->params['storage']) && !empty(\Yii::$app->params['storage']['behaviors']))
-        {
-            $behaviors = \Yii::$app->params['storage']['behaviors'];
-            if(is_string($behaviors)) {
-                $behaviors = explode(',',$behaviors);
-            } else if (!is_array($behaviors)) {
-                $behaviors = [];
-            }
-            foreach ($behaviors as $behavior) {
-                if (class_exists($behavior)) {
-                    /* @var $behavior Behavior*/
-                    $behavior = new $behavior();
-                    $behavior->attach($driver);
-                }
-            }
-        }
-        self::$_drivers[$driverName] = $driver;
-        return $driver;
-    }
-
+    public $eTag;
 
     /**
-     * final的目的是防止被覆盖
+     * 文件后缀
+     *
+     * @var string
      */
-    public final function init()
-    {
-        parent::init(); // TODO: Change the autogenerated stub
-        $this->event = new StorageEvent();
-        if (!empty($this->config['maxFileSize'])) {
-            $this->maxFileSize = $this->config['maxFileSize'];
-        }
-        $this->initUploader();
-    }
+    public $extension;
 
     /**
-     * 上传驱动的初始化方法
+     * 新名称
+     *
+     * @var string
      */
-    public function initUploader(){}
-
-
-    public function loadPostData($post)
-    {
-        $props = get_object_vars($this);
-
-        foreach($props as $prop=>$def) {
-            if (isset($post[$prop])) {
-                $this->$prop = $post[$prop];
-            } else {
-                $this->$prop = $def;
-            }
-        }
-        if (empty($this->extraData)) {
-            $this->extraData = [];
-        } else {
-            $this->extraData = json_decode($this->extraData, JSON_UNESCAPED_UNICODE);
-        }
-
-        if (intval($this->chunks) > 0 && intval($this->size) > intval($this->chunkSize)) {
-            $this->chunked = true;
-        }
-    }
-
+    public $name;
 
     /**
-     *  主要用在上传文件初始化，删除文件不需要。
+     * 原始名称
+     *
+     * @var string
      */
-    private function initFile()
-    {
-        if (empty($this->file)) {
-            $this->file = UploadedFile::getInstanceByName($this->fieldName);
-        }
-        if ($this->chunked) {
-            $this->chunkFileSize = $this->file->size;
-            $this->checkChunkFileMaxSize();
-        } else {
-            $this->size = $this->file->size;
-        }
-    }
+    public $originName;
 
-    const ERROR_FILE_SIZE_EXCEED = 10;
-    const ERROR_HTTP_URL = 11;
-    const ERROR_HTTP_DEAD = 12;
-    const ERROR_TYPE_NOT_ALLOWED = 13;
-    const ERROR_FILE_NOT_FOUND = 14;
-    const ERROR_CHUNK_FILE_SIZE_EXCEED = 15;
-    const ERROR_CHUNKS_SIZE_NOT_MATCH = 16;
-
-
-    public function message($code)
-    {
-        switch($code){
-            case UPLOAD_ERR_INI_SIZE:
-                $err = 'The uploaded file exceeds the upload_max_filesize directive';
-                break;
-            case UPLOAD_ERR_FORM_SIZE:
-                $err =  'The uploaded file exceeds the MAX_FILE_SIZE directive';
-                break;
-            case UPLOAD_ERR_PARTIAL:
-                $err = 'The uploaded file was only partially uploaded';
-                break;
-            case UPLOAD_ERR_NO_FILE:
-                $err = 'No file was uploaded';
-                break;
-            case UPLOAD_ERR_NO_TMP_DIR:
-                $err = "Missing a temporary folder";
-                break;
-            case UPLOAD_ERR_CANT_WRITE:
-                $err = "Can not write a file";
-                break;
-            case UPLOAD_ERR_EXTENSION:
-                $err = "A PHP extension stopped the file upload";
-                break;
-            case self::ERROR_FILE_SIZE_EXCEED:
-                $err = "The uploaded file size exceed system required";
-                break;
-            case self::ERROR_HTTP_URL:
-                $err = "Not a url";
-                break;
-            case self::ERROR_HTTP_DEAD:
-                $err = "a dead link";
-                break;
-            case self::ERROR_TYPE_NOT_ALLOWED:
-                $err = "The uploaded file's type not allowed";
-                break;
-            case self::ERROR_FILE_NOT_FOUND:
-                $err = "The uploaded file type not found";
-                break;
-            case self::ERROR_CHUNK_FILE_SIZE_EXCEED:
-                $err = "The chunk file size exceed";
-                break;
-            case self::ERROR_CHUNKS_SIZE_NOT_MATCH:
-                $err = "The all chunks size not match file size";
-                break;
-            default:
-                $err = 'Unknow error！';
-        }
-        return $err;
-    }
-
-    private $_fileSaveObject =null;
-
-
-    public function setFileSaveObject($object){
-        $this->_fileSaveObject = BaseFileHelper::normalizePath($object,'/');
-    }
     /**
-     * 获取文件保存的文件名称
-     * @return string
+     * 大小
+     *
+     * @var number
      */
-    public function genFileSaveName()
-    {
-        if (empty($this->_fileSaveObject)) {
-            $fileName = self::guid() .'.'. $this->file->extension;
-            $dir = $this->getFormatSaveDir();
-        } else {
-            $fileName = basename($this->_fileSaveObject) . '.' . $this->file->extension;
-            $dir = BaseFileHelper::normalizePath(dirname($this->_fileSaveObject),'/');
-        }
-        return [
-            $fileName,$dir
-        ];
-    }
-
-    public function getSavePath(){
-        return BaseFileHelper::normalizePath($this->_driverName
-        . DIRECTORY_SEPARATOR . $this->saveDir,'/');
-    }
-
-    public function getFormatSaveDir()
-    {
-        return BaseFileHelper::normalizePath($this->_driverName
-        . DIRECTORY_SEPARATOR . $this->saveDir
-        . DIRECTORY_SEPARATOR . date('Y-m-d'),'/');
-    }
+    public $size;
 
     /**
-     * @param $file \yii\web\UploadedFile
-     * @return bool
+     * 文件类型
+     *
+     * @var string
      */
-    protected function checkExtension($file) {
-        //如果是数组，则必须按照列表检查
-        if (is_array($this->accept)) {
-            if (in_array($file->extension,$this->accept)) {
-                return true;
-            }
-            return false;
-        }
-        //如果不是数组，则不检查文件后缀
-        return true;
-    }
+    public $type;
 
     /**
-     * @return array|mixed
+     * 显示地址
+     *
+     * @var string
      */
-    public function save()
-    {
-        $this->initFile();
-        if ($this->file->error === 0) {
-            if ($this->checkExtension($this->file)) {
-                $this->beforeWrite();
-                list($file,$dir) = $this->genFileSaveName();
-                $rst = $this->writeFile($file,$dir);
-                if ($rst['code'] == 0) {
-                    $fileObj = new File();
-                    $fileObj->name = $this->file->name;
-                    $fileObj->extension = $this->file->extension;
-                    $fileObj->object = $rst['object'];
-                    $fileObj->provider = $this->_driverName;
-                    $fileObj->eTag = $this->_eTag;
-                    $fileObj->newName = $file;
-                    $fileObj->size = $this->size;
-                    $fileObj->url = $this->getBindUrl($rst['object']);
-                    $this->afterWrite($fileObj);
-                    return $this->response($fileObj);
-                }
-
-                return  $this->response(
-                    null,
-                    500,
-                    'Server error'
-                );
-            }else {
-                return $this->response(
-                    null,
-                    401,
-                    'Not allow to upload a file with extensions '.$this->file->extension
-                );
-            }
-        } else {
-            return $this->response(
-                null,
-                100 + $this->file->error,
-                $this->message($this->file->error)
-            );
-        }
-
-    }
-
-
-    public static function parseObjectPath($object)
-    {
-        $path = parse_url($object,PHP_URL_PATH);
-        $path = ltrim($path,'\/');
-        $parts = explode('/',$path);
-        if (count($parts)>=2) {
-            return [
-                'driverName'=>$parts[0],
-                'object'=>$path,
-            ];
-        } else {
-            return [
-                'driverName'=>'local',
-                'object'=>$path,
-            ];
-        }
-    }
-
-
-    public static function deleteObject($object)
-    {
-        $objectInfo = self::parseObjectPath($object);
-        /* @var $driver Driver*/
-        $driver = self::factory($objectInfo['driverName']);
-        $file = new File();
-        $file->object = $objectInfo['object'];
-        $file->provider = $objectInfo['driverName'];
-        $file->url = $object;
-
-        return $driver->delete($file);
-    }
-
+    public $url;
 
     /**
-     * @param $file File
-     * @return mixed
+     * 额外回传的数据
+     *
+     * @var array
      */
-    public function delete($file)
-    {
-        $this->beforeDelete();
-        $object = BaseFileHelper::normalizePath(ltrim($file->object, '/\\'), '/');
-        $rst = $this->deleteFile($object);
-        $this->afterDelete($file);
-        return $rst;
-    }
+    public $extraData = null;
+}
 
-    public function beforeWrite()
-    {
-        $this->triggerEvent &&
-        $this->trigger(self::EVENT_BEFORE_WRITE_FILE,$this->event);
-    }
+class ListResponse
+{
+
+    public $list = [];
+
+    public $total;
+
+    public $start;
+
+    public $size;
+}
+
+interface IDriver
+{
 
     /**
-     * @param $fileInfo File
+     *
+     * @param InitRequest $initRequest
+     * @return InitResponse
      */
-    public function afterWrite($fileInfo)
-    {
-        if ($this->triggerEvent) {
-            $this->event->file = $fileInfo;
-            $this->trigger(self::EVENT_AFTER_WRITE_FILE,$this->event);
-        }
-
-    }
-
-
-    public function beforeDelete()
-    {
-        $this->trigger(self::EVENT_BEFORE_DELETE_FILE,$this->event);
-    }
-
-    public function afterDelete($fileInfo)
-    {
-        $this->event->file = $fileInfo;
-        $this->trigger(self::EVENT_AFTER_DELETE_FILE,$this->event);
-
-    }
-
+    public function initUpload($initRequest);
 
     /**
-     * @return mixed
+     *
+     * @param ChunkRequest $chunkRequest
+     * @return ChunkResponse
      */
-    abstract public function writeFile($file,$dir);
+    public function write($chunkRequest);
 
     /**
-     * @param $file string
-     * @return mixed
+     * file full relative path
+     *
+     * @param string $key
+     * @return boolean
      */
-    abstract public function deleteFile($file);
-
+    public function delete($key);
 
     /**
-     * @param null|int|string $start
+     *
+     * @param mixed $start
      * @param int $size
-     * @return mixed
+     * @return ListResponse
      */
-    abstract public function listFiles($start=null,$size=10);
+    public function listFiles($start = 0, $size = 10);
+}
+
+class StorageEvent extends Event
+{
+
+    public $payload;
+}
+
+abstract class Driver extends Component implements IDriver
+{
+
+    const EVENT_BEFORE_INIT_UPLOADER = 'beforeInitUploader';
+
+    const EVENT_AFTER_INIT_UPLOADER = 'afterInitUploader';
+
+    const EVENT_BEFORE_WRITE_FILE = 'beforeWriteFile';
+
+    const EVENT_AFTER_WRITE_FILE = 'afterWriteFile';
+
+    const EVENT_BEFORE_DELETE_FILE = 'beforeDeleteFile';
+
+    const EVENT_AFTER_DELETE_FILE = 'afterDeleteFile';
+
+    public $uploadDir = 'uploader';
 
     /**
-     * 获取原始的对象访问地址
-     * @param $object
-     * @return string|null|false;
+     * 表单文件参数名称
+     *
+     * @var string
      */
-    abstract public function getSourceUrl($object);
-
+    public $fileName = 'file';
 
     /**
-     * 获取绑定域名的对象访问地址
-     * @param $object
-     * @return string|null|false;
+     *
+     * @var string 目录后缀 比如 2018-06-08
      */
-    abstract public function getBindUrl($object);
+    public $dirSuffix = '';
 
+    public $maxFileSize = 4194304;
 
-    public function getFileNameFromString($string) {
-        preg_match("/[\/]([^\/]*)[\.]?[^\.\/]*$/", $string, $m);
-        return $m ? $m[1] : "";
-    }
+    public $accept = [
+        'gif',
+        'jpg',
+        'png',
+        'bmp',
+        'docx',
+        'doc',
+        'ppt',
+        'xsl',
+        'rar',
+        'zip',
+        '7z'
+    ];
 
+    public $imageBaseUrl = '';
 
-    public function checkChunkFileMaxSize()
+    public $fileBaseUrl = '';
+
+    /**
+     *
+     * @param String $type
+     * @param String $key
+     */
+    protected function getKeyUrl($type, $key)
     {
-        if ($this->chunked) {
-            $maxSize = intval($this->chunks) * intval($this->chunkSize);
-            $minSize = $maxSize - intval($this->chunkSize);
-            if ($this->chunkSize < $this->chunkFileSize) {
-                $this->file->error = self::ERROR_CHUNK_FILE_SIZE_EXCEED;
-            } else if ($this->size < $minSize || $this->size > $maxSize) {
-                $this->file->error = self::ERROR_CHUNKS_SIZE_NOT_MATCH;
-            } else if ($this->maxFileSize < $this->size) {
-                $this->file->error = self::ERROR_FILE_SIZE_EXCEED;
-            }
-        }
-    }
-
-    public function crawler($url)
-    {
-        $file = [
-            'error'=>UPLOAD_ERR_OK
-        ];
-        $url = htmlspecialchars($url);
-        $url = str_replace("&amp;", "&", $url);
-        if (strpos($url,"http" !== 0 )) {
-            $file['error'] = self::ERROR_HTTP_URL;
+        if ($this->isImage($type)) {
+            return rtrim($this->imageBaseUrl, '/') . '/' . ltrim($key, '/');
         } else {
-            //获取请求头并检测死链
-            $heads = get_headers($url,1);
-            if (!(stristr($heads[0], "200") && stristr($heads[0], "OK"))) {
-                $file['error'] = self::ERROR_HTTP_DEAD;
-            } elseif (intval($heads['Content-Length']) > $this->maxFileSize ) {
-                $file['error'] = self::ERROR_FILE_SIZE_EXCEED;
-            } else {
-
-                //格式验证(扩展名验证和Content-Type验证)
-                $extension = strtolower(substr(strrchr($url, '.'),1));
-                if (!in_array($extension, $this->accept) || stristr($heads['Content-Type'], "image")) {
-                    $file['error'] = self::ERROR_TYPE_NOT_ALLOWED;
-                } else {
-
-                    //打开输出缓冲区并获取远程图片
-                    ob_start();
-                    $context = stream_context_create(
-                        array('http' => array(
-                            'follow_location' => false // don't follow redirects
-                        ))
-                    );
-                    readfile($url, false, $context);
-                    $file = ob_get_contents();
-                    ob_end_clean();
-                    $tempFile = tmpfile();
-                    file_put_contents($tempFile,$file);
-                    $fileName = $this->getFileNameFromString($url);
-                    $file['name'] = $fileName;
-                    $file['tempName'] = $tempFile;
-                    $file['size'] = filesize($tempFile);
-                    $file['type'] = $heads['Content-Type'];
-                }
-            }
+            return rtrim($this->fileBaseUrl, '/') . '/' . ltrim($key, '/');
         }
-
-        $this->file = new UploadedFile($file);
     }
 
-
-    /**
-     * @param $url string
-     * @return array|mixed
-     */
-    public function saveRemote($url)
+    protected function fileExtension($filename)
     {
-        $this->crawler($url);
-        return $this->save();
+        return strtolower(substr(strrchr($filename, '.'), 1));
+    }
+
+    protected function normalizeWebPath($path)
+    {
+        return BaseFileHelper::normalizePath($path, '/');
+    }
+
+    protected function isImage($type)
+    {
+        return strpos(strtolower($type), 'image') === false ? false : true;
     }
 
     /**
-     * @param $string string "data:image/png;base64,ddddxhdhd"
+     *
+     * @return \dungang\storage\InitResponse
      */
-    public function base64($string)
+    public function initChunkUpload()
     {
-        $file = [
-            'error'=>UPLOAD_ERR_OK
-        ];
-        if(preg_match('/data\:(.*?)\;base64\,(.*)/',$string,$match)) {
-
-            $file = base64_decode($match[2]);
-            $tempFile = tmpfile();
-            file_put_contents($tempFile,$file);
-            $file['tempName'] = $tempFile;
-            $file['size'] = filesize($tempFile);
-            if ($this->maxFileSize < $file['size']) {
-                $file['error'] = self::ERROR_FILE_SIZE_EXCEED;
-            } else {
-                $file['type'] = $match[1];
-                $file['name'] = 'base64pic.' . BaseFileHelper::getExtensionsByMimeType($match[1]);
-            }
+        $httpReq = \Yii::$app->request;
+        $req = new InitRequest();
+        $req->name = $httpReq->post('name');
+        $req->type = $httpReq->post('type');
+        $req->timestamp = $httpReq->post('timestamp');
+        $extension = $this->fileExtension($req->name);
+        if (null == $this->accept || (null != $this->accept && ! in_array($extension, $this->accept))) {
+            $this->beforeInit($req);
+            $initResponse = $this->initUpload($req);
+            $this->afterInit($initResponse);
         } else {
-            $file['error'] = self::ERROR_FILE_NOT_FOUND;
+            $initResponse = new InitResponse();
+            $initResponse->isOk = false;
+            $initResponse->error = 'not allowed to upload file type';
         }
-
-        $this->file = new UploadedFile($file);
-
+        return $initResponse;
     }
 
     /**
-     * @param $base64 string
-     * @return array|mixed
+     *
+     * @return \dungang\storage\ChunkResponse
      */
-    public function saveBase64($base64)
+    public function chunkUpload()
     {
-        $this->base64($base64);
-        return $this->save();
+        $httpReq = \Yii::$app->request;
+        $uploadFile = UploadedFile::getInstanceByName($this->fileName);
+        $chunkRequest = new ChunkRequest();
+        $chunkRequest->uploadId = $httpReq->post('uploadId');
+        $chunkRequest->chunks = $httpReq->post('chunks');
+        $chunkRequest->chunk = $httpReq->post('chunk');
+        $chunkRequest->name = $httpReq->post('name');
+        $chunkRequest->type = $httpReq->post('type');
+        $chunkRequest->size = $httpReq->post('size');
+        $chunkRequest->key = $httpReq->post('key');
+        if ($httpReq->post('extrData')) {
+            $chunkRequest->extraData = json_decode($httpReq->post('extrData'));
+        } else {
+            $chunkRequest->extraData = null;
+        }
+        $chunkRequest->chunkSize = $uploadFile->size;
+        $chunkRequest->uploadFile = $uploadFile;
+        $extension = $this->fileExtension($chunkRequest->name);
+        if ($chunkRequest->chunkSize > $this->maxFileSize) {
+            $chunkResponse = new ChunkResponse();
+            $chunkResponse->uploadId = $chunkRequest->uploadId;
+            $chunkResponse->key = $chunkRequest->key;
+            $chunkResponse->isOk = false;
+            $chunkResponse->error = 'file size is too large';
+        } else if (null != $this->accept && ! in_array($extension, $this->accept)) {
+            $chunkResponse = new ChunkResponse();
+            $chunkResponse->uploadId = $chunkRequest->uploadId;
+            $chunkResponse->key = $chunkRequest->key;
+            $chunkResponse->isOk = false;
+            $chunkResponse->error = 'not allowed to upload file type';
+        } else {
+            $this->beforeWrite($chunkRequest);
+            $chunkResponse = $this->write($chunkRequest);
+            $this->afterWrite($chunkResponse);
+        }
+        return $chunkResponse;
     }
 
-
     /**
-     * @param null|string|File $object
-     * @param int $code
-     * @param null $message
-     * @return array
+     *
+     * @param string $key
+     * @return boolean
      */
-    public function response($object=null,$code=0,$message=null)
+    public function deleteUpload($key)
     {
-        return [
-            'code'=>$code,
-            'message'=>$message,
-            'object' => $object,
-        ];
+        $this->beforeDelete($key);
+        $res = $this->delete($key);
+        $this->afterDelete($key);
+        return $res;
     }
 
-    /**
-     * @return string 生产guid
-     */
-    public static function guid() {
-        //from stack overflow.
-        return sprintf( '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            // 32 bits for "time_low"
-            mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ),
-
-            // 16 bits for "time_mid"
-            mt_rand( 0, 0xffff ),
-
-            // 16 bits for "time_hi_and_version",
-            // four most significant bits holds version number 4
-            mt_rand( 0, 0x0fff ) | 0x4000,
-
-            // 16 bits, 8 bits for "clk_seq_hi_res",
-            // 8 bits for "clk_seq_low",
-            // two most significant bits holds zero and one for variant DCE1.1
-            mt_rand( 0, 0x3fff ) | 0x8000,
-
-            // 48 bits for "node"
-            mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff )
-        );
+    public function beforeInit($initRequest)
+    {
+        $this->trigger(self::EVENT_BEFORE_INIT_UPLOADER, new StorageEvent([
+            'payload' => $initRequest
+        ]));
     }
 
+    public function afterInit($initResponse)
+    {
+        $this->trigger(self::EVENT_AFTER_INIT_UPLOADER, new E([
+            'payload' => $initResponse
+        ]));
+    }
+
+    public function beforeWrite($chunkRequest)
+    {
+        $this->trigger(self::EVENT_BEFORE_WRITE_FILE, new StorageEvent([
+            'payload' => $chunkRequest
+        ]));
+    }
+
+    public function afterWrite($chunkResponse)
+    {
+        $this->trigger(self::EVENT_AFTER_WRITE_FILE, new StorageEvent([
+            'payload' => $chunkResponse
+        ]));
+    }
+
+    public function beforeDelete($key)
+    {
+        $this->trigger(self::EVENT_BEFORE_DELETE_FILE, new StorageEvent([
+            'payload' => $key
+        ]));
+    }
+
+    public function afterDelete($key)
+    {
+        $this->trigger(self::EVENT_AFTER_DELETE_FILE, new StorageEvent([
+            'payload' => $key
+        ]));
+    }
 }

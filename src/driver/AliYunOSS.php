@@ -1,179 +1,137 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: dungang
- * Date: 2017/3/21
- * Time: 16:46
- */
-
 namespace dungang\storage\driver;
 
-
-use OSS\OssClient;
-use yii\helpers\BaseFileHelper;
 use dungang\storage\Driver;
+use dungang\storage\ChunkRequest;
+use dungang\storage\InitRequest;
+use dungang\storage\ChunkResponse;
+use dungang\storage\ListResponse;
 
-/**
- * Class AliYunOSS
- * @package dungang\storage\components
- */
-class AliYunOSS extends Driver
+class AliyunOSS extends Driver
 {
 
-    const PART_ETAGS = 'PartETags';
-
-    public $_driverName = 'oss';
-
     /**
+     * \OSS\OSSClient
+     *
      * @var \OSS\OSSClient
      */
-    protected $client;
+    protected $ossClient;
 
-    /**
-     * @var string OSS Bucket
-     */
     public $bucket;
 
-    /**
-     *  可以添加行为来初始化config,如果config为空则通过 如：params[storage][oss]获取
-     */
-    public function initUploader()
+    public $accessKey;
+
+    public $accessSecret;
+
+    public $endpoint;
+
+    public $ossChunkMinSize = 100 * 1024;
+
+    public function init()
     {
-        $this->client = new OssClient(
-            $this->config['AccessKeyId'],
-            $this->config['AccessKeySecret'],
-            $this->config['EndPoint']
-        );
-        $this->bucket = $this->config['Bucket'];
+        parent::init();
+        $this->ossClient = new OssClient($this->accessKey, $this->accessSecret, $this->endpoint);
+    }
+
+    public function initUpload($initRequest)
+    {
+        $extension = $this->fileExtension($initRequest->name);
+        $res = new InitResponse();
+        $res->key = $this->normalizeWebPath($this->uploadDir . DIRECTORY_SEPARATOR . $this->dirSuffix . DIRECTORY_SEPARATOR . md5($res->uploadId . $initRequest->timestamp) . '.' . $extension);
+        $res->uploadId = $this->ossClient->initiateMultipartUpload($this->bucket, $res->key);
+        return $res;
     }
 
     /**
-     * @return bool|string
+     *
+     * @param ChunkRequest $chunkRequest
+     * @return ChunkResponse
+     * {@inheritdoc}
+     * @see \dungang\storage\IDriver::write()
      */
-    public function writeFile($file,$dir)
+    public function write($chunkRequest)
     {
-        $partNumber = 1 + $this->chunk;
-        //aliyun oss 路径分隔符用'/'
-        $object = BaseFileHelper::normalizePath($dir . DIRECTORY_SEPARATOR . $file, '/');
+        $chunkResponse = new ChunkResponse();
+        $chunkResponse->uploadId = $chunkRequest->uploadId;
+        $chunkResponse->originName = $chunkRequest->name;
+        $chunkResponse->type = $chunkRequest->type;
+        $chunkResponse->size = $chunkRequest->size;
 
-        //除了最后一块Part，其他Part的大小不能小于100KB，否则会导致在调用CompleteMultipartUpload接口的时候失败
-        $minChunkSize = 100 * 1024;
-        if (intval($this->size) >= $minChunkSize && $this->chunked) {
-            $this->triggerEvent = false;
-            if ($this->chunk == 0) {
-                $uploadId = $this->client->initiateMultipartUpload(
-                    $this->bucket, $object);
-                if ($uploadId) {
-                    $this->extraData[OssClient::OSS_UPLOAD_ID] = $uploadId;
-                }
-            }
-            $this->_eTag = $this->client->uploadPart(
-                $this->bucket,
-                $object,
-                $this->extraData[OssClient::OSS_UPLOAD_ID],
-                [
-                    OssClient::OSS_FILE_UPLOAD => $this->file->tempName,
-                    OssClient::OSS_PART_NUM => $partNumber,
-                    OssClient::OSS_LENGTH => $this->chunkFileSize
-                ]);
-            if ($this->_eTag) {
-
-                $this->extraData[self::PART_ETAGS][] = [
-                    'PartNumber' => $partNumber,
-                    'ETag' => $this->_eTag
-                ];
-
-                if ($partNumber == $this->chunks) {
-                    $this->_eTag = $this->client->completeMultipartUpload(
-                        $this->bucket,
-                        $object,
-                        $this->extraData[OssClient::OSS_UPLOAD_ID],
-                        $this->extraData[self::PART_ETAGS]
-                    );
-                    if ($this->_eTag) {
-                        $this->triggerEvent = true;
-                        return $this->response($object);
-                    } else {
-                        return $this->response(null,500,'Server error');
-                    }
-                }
-                return $this->response($object);
-            } else {
-                return $this->response(null,500,'Server error');
-            }
-
+        $chunkResponse->extension = $this->fileExtension($chunkRequest->name);
+        if (empty($chunkRequest->key)) {
+            $chunkResponse->key = $this->normalizeWebPath($this->uploadDir . DIRECTORY_SEPARATOR . $this->dirSuffix . DIRECTORY_SEPARATOR . md5(self::guid()) . '.' . $chunkResponse->extension);
         } else {
-            $content = file_get_contents($this->file->tempName);
-            $this->_eTag = $this->client->putObject(
-                $this->bucket,
-                $object,
-                $content,
-                [OssClient::OSS_LENGTH => $this->chunkFileSize]
-            );
-
-            if ($this->_eTag) {
-                return $this->response($object);
-            } else {
-                return $this->response(null,500,'Server error');
-            }
+            $chunkResponse->key = $chunkRequest->key;
         }
+
+        // 没有分片
+        if (null == $chunkRequest->chunks || $chunkRequest->chunks == 0) {
+
+            $chunkResponse->eTag = $this->ossClient->putObject($this->bucket, $chunkResponse->key, file_get_contents($chunkRequest->uploadFile->tempName), [
+                OssClient::OSS_LENGTH => $this->chunkFileSize
+            ]);
+
+            if (null != $chunkResponse->eTag) {
+                $chunkResponse->isCompleted = true;
+                $chunkResponse->url = $this->getKeyUrl($chunkResponse->type, $chunkResponse->key);
+            }
+        } else if ($chunkRequest->uploadFile->size >= $this->ossChunkMinSize) {
+
+            $chunkResponse->eTag = $this->ossClient->uploadPart($this->bucket, $chunkResponse->key, $chunkResponse->uploadId, [
+                OssClient::OSS_FILE_UPLOAD => $chunkRequest->uploadFile->tempName,
+                OssClient::OSS_PART_NUM => $chunkRequest->chunk + 1,
+                OssClient::OSS_LENGTH => $chunkRequest->chunkSize
+            ]);
+
+            $listPartsInfo = $this->ossClient->listParts($this->bucket, $chunkResponse->key, $chunkResponse->uploadId);
+
+            if ($listPartsInfo && $partInfos = $listPartsInfo->getListPart()) {
+                $parts = [];
+                foreach ($partInfos as $partInfo) {
+                    $parts[] = [
+                        'PartNumber' => $partInfo['PartNumber'],
+                        'eTag' => $partInfo['eTag']
+                    ];
+                }
+
+                $chunkResponse->eTag = $this->ossClient->completeMultipartUpload($this->bucket, $chunkResponse->key, $chunkResponse->uploadId, $parts);
+
+                if (null != $chunkResponse->eTag) {
+                    $chunkResponse->isCompleted = true;
+                    $chunkResponse->url = $this->getKeyUrl($chunkResponse->type, $chunkResponse->key);
+                }
+            }
+        } else {
+            $chunkResponse->isOk = false;
+            $chunkResponse->error = '除了最后一块Part，其他Part的大小不能小于100KB';
+        }
+        return $chunkResponse;
     }
 
-    public function deleteFile($object)
+    public function delete($key)
     {
-        $this->client->deleteObject($this->bucket, $object);
+        $this->ossClient->deleteObject($this->bucket, $key);
         return true;
     }
 
-    /**
-     * @param int|string|null $start
-     * @param int $size
-     * @return array
-     */
-    public function listFiles($start = null, $size = 10)
+    public function listFiles($start = 0, $size = 10)
     {
-        if($start === 0 ) $start = null;
-        $result = [
-            "code" => 0
-        ];
-        try{
+        if ($start === 0)
+            $start = null;
+        $response = new ListResponse();
+        $response->size = $size;
+        try {
             /* @var $listInfo \OSS\Model\ObjectListInfo*/
-            $listInfo = $this->client->listObjects($this->bucket,[
-                'max-keys'=>$size,
-                'prefix'=>$this->getSavePath(),
-                'marker'=>$start
+            $listInfo = $this->ossClient->listObjects($this->bucket, [
+                'max-keys' => $size,
+                'prefix' => $this->uploadDir,
+                'marker' => $start
             ]);
 
-            $result['list'] = $this->formatListObject($listInfo->getObjectList());
-            $result['start'] = $listInfo->getNextMarker();
-        } catch (\Exception $e) {
-            $result['code'] = self::ERROR_FILE_NOT_FOUND;
-            $result['message'] = "no match file";
-        }
+            $response->list = $listInfo->getObjectList();
+            $response->start = $listInfo->getNextMarker();
+        } catch (\Exception $e) {}
         return $result;
     }
-
-
-    protected function formatListObject($items)
-    {
-        return array_map(function($item){
-            return [
-                'object'=>$item->key,
-                'url'=>$this->getBindUrl($item->key)
-            ];
-        },$items);
-    }
-
-
-    public function getSourceUrl($object)
-    {
-        return $this->config['sourceBaseUrl'] . '/' . ltrim($object, '/');
-    }
-
-    public function getBindUrl($object)
-    {
-        return $this->config['bindBaseUrl'] . '/' . ltrim($object, '/');
-    }
-
-
 }
+

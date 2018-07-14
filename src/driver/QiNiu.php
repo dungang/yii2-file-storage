@@ -4,9 +4,7 @@
  * Date: 2017/3/22
  * Time: 10:47
  */
-
 namespace dungang\storage\driver;
-
 
 use dungang\storage\Driver;
 use dungang\storage\driver\qiniu\ResumeUploader;
@@ -14,159 +12,173 @@ use Qiniu\Auth;
 use Qiniu\Storage\BucketManager;
 use Qiniu\Storage\UploadManager;
 use yii\helpers\BaseFileHelper;
+use dungang\storage\ListResponse;
+use Qiniu\Config;
+use dungang\storage\ChunkRequest;
+use dungang\storage\ChunkResponse;
 
+/**
+ * 上传指定块的一片数据，具体数据量可根据现场环境调整。同一块的每片数据必须串行上传
+ *
+ * @author dungang
+ *        
+ */
 class QiNiu extends Driver
 {
+
     public $_driverName = 'qiniu';
 
     /**
+     *
      * @var string OSS Bucket
      */
-    protected $bucket;
+    public $bucket;
+
+    public $accessKey;
+
+    public $secretKey;
+
+    public $extraData;
 
     /**
+     *
      * @var Auth
      */
     protected $auth;
 
     /**
-     *  可以添加行为来初始化config,如果config为空则通过 如：params[storage][oss]获取
+     * 可以添加行为来初始化config,如果config为空则通过 如：params[storage][oss]获取
      */
-    public function initUploader()
+    public function init()
     {
-        $this->auth = new Auth(
-            $this->config['AccessKey'],
-            $this->config['SecretKey']
-        );
-        $this->bucket = $this->config['Bucket'];
+        parent::init();
+        $this->auth = new Auth($this->accessKey, $this->secretKey);
     }
 
-
-    public function writeFile($file,$dir)
+    /**
+     *
+     * {@inheritdoc}
+     * @see \dungang\storage\IDriver::initUpload()
+     */
+    public function initUpload($initRequest)
     {
-        if (empty($this->extraData['upToken'])) {
-            $token = $this->auth->uploadToken($this->bucket);
-            $this->extraData['upToken'] = $token;
+        $extension = $this->fileExtension($initRequest->name);
+        $res = new InitResponse();
+        $res->key = $this->normalizeWebPath($this->uploadDir . DIRECTORY_SEPARATOR . $this->dirSuffix . DIRECTORY_SEPARATOR . md5($res->uploadId . $initRequest->timestamp) . '.' . $extension);
+        $res->uploadId = $this->auth->uploadToken($this->bucket);
+        ;
+        return $res;
+    }
+
+    /**
+     *
+     * @param ChunkRequest $chunkRequest
+     * @return ChunkResponse
+     * {@inheritdoc}
+     * @see \dungang\storage\IDriver::write()
+     */
+    public function write($chunkRequest)
+    {
+        $chunkResponse = new ChunkResponse();
+        $chunkResponse->uploadId = $chunkRequest->uploadId;
+        $chunkResponse->originName = $chunkRequest->name;
+        $chunkResponse->type = $chunkRequest->type;
+        $chunkResponse->size = $chunkRequest->size;
+        $chunkResponse->extraData = $chunkRequest->extraData;
+
+        $chunkResponse->extension = $this->fileExtension($chunkRequest->name);
+        if (empty($chunkRequest->key)) {
+            $chunkResponse->key = $this->normalizeWebPath($this->uploadDir . DIRECTORY_SEPARATOR . $this->dirSuffix . DIRECTORY_SEPARATOR . md5(self::guid()) . '.' . $chunkResponse->extension);
         } else {
-            $token = $this->extraData['upToken'];
+            $chunkResponse->key = $chunkRequest->key;
         }
 
-        //aliyun oss 路径分隔符用'/'
-        $object = BaseFileHelper::normalizePath($dir . DIRECTORY_SEPARATOR . $file, '/');
-
-        $partIndex = $this->chunk + 1;
-
-        //除了最后一块Part，其他Part的大小不能小于100KB，否则会导致在调用CompleteMultipartUpload接口的时候失败
-        $minChunkSize = 100 * 1024;
-        if (intval($this->size) >= $minChunkSize && $this->chunked) {
-            $this->triggerEvent = false;
-            $resumeUploader = new ResumeUploader(
-                $token,
-                $object,
-                $this->size,
-                $this->file->type
-            );
-
-            if ($partIndex < $this->chunks && !$resumeUploader->checkBlockSize($this->chunkFileSize)) {
-                return $this->response(null, 500, '当前快的大小：' . $this->chunkSize . '分片块的大小必须是4M，除最后一块');
-            }
-
-
-            $part = file_get_contents($this->file->tempName);
-            $partId = $resumeUploader->genPartId($part);
-
-            $rst = $resumeUploader->uploadPart($partId, $part, strlen($part));
-
-            if (empty($this->extraData['contexts'])) {
-                $this->extraData['contexts'] = [];
-            }
-
-            if (!isset($rst['error'])) {
-
-                $this->extraData['contexts'][$this->chunk] = $rst['ctx'];
-
-                if (($this->chunk + 1) == intval($this->chunks)) {
-                    $rst = $resumeUploader->completePartUpload($this->extraData['contexts']);
-                    if (!empty($rst['error'])) {
-                        return $this->response(null, 500, $rst['error']);
-                    }
-                    $this->_eTag = $rst['hash'];
-                    $this->triggerEvent = true;
-                }
-                return $this->response($object);
-            } else {
-                return $this->response(null, 500, $rst['error']);
-            }
-
-        } else {
+        // 没有分片
+        if (null == $chunkRequest->chunks || $chunkRequest->chunks == 0) {
             $manager = new UploadManager();
-            $rst = $manager->putFile(
-                $token,
-                $object,
-                $this->file->tempName,
-                null,
-                $this->file->type
-            );
+            $rst = $manager->putFile($chunkRequest->uploadId, $chunkRequest->key, $chunkRequest->uploadFile->tempName, null, $chunkRequest->type);
             if (empty($rst['error'])) {
-                $this->_eTag = $rst[0]['hash'];
-                return $this->response($object);
+                $chunkResponse->eTag = $rst[0]['hash'];
+                $chunkResponse->isCompleted = true;
+                $chunkResponse->url = $this->getKeyUrl($chunkResponse->type, $chunkResponse->key);
             }
-            return $this->response(null, 500, $rst['error']);
+        } else if ($chunkRequest->uploadFile->size <= Config::BLOCK_SIZE) {
+
+            $resumeUploader = new ResumeUploader($chunkRequest->uploadId, $chunkRequest->key, $chunkRequest->uploadFile->size, $chunkRequest->type);
+
+            if ($partIndex < $this->chunks && ! $resumeUploader->checkBlockSize($this->chunkFileSize)) {
+                $chunkResponse->isOk = false;
+                $chunkResponse->error = '分片块的大小必须是4M，除最后一块';
+            } else {
+                $part = file_get_contents($chunkRequest->uploadFile->tempName);
+                $partId = $resumeUploader->genPartId($part);
+
+                $rst = $resumeUploader->uploadPart($partId, $part, strlen($part));
+
+                if (empty($chunkResponse->extraData['contexts'])) {
+                    $chunkResponse->extraData['contexts'] = [];
+                }
+                if (! isset($rst['error'])) {
+
+                    $chunkResponse->extraData['contexts'][$this->chunk] = $rst['ctx'];
+
+                    if (($chunkRequest->chunk + 1) == intval($chunkRequest->chunks)) {
+                        $rst = $resumeUploader->completePartUpload($chunkResponse->extraData['contexts']);
+                        if (! empty($rst['error'])) {
+                            $chunkResponse->isOk = false;
+                            $chunkResponse->error = $rst['error'];
+                        } else {
+                            $chunkResponse->eTag = $rst['hash'];
+                            $chunkResponse->isCompleted = true;
+                            $chunkResponse->url = $this->getKeyUrl($chunkResponse->type, $chunkResponse->key);
+                        }
+                    }
+                } else {
+                    $chunkResponse->isOk = false;
+                    $chunkResponse->error = $rst['error'];
+                }
+            }
+        } else {
+            $chunkResponse->isOk = false;
+            $chunkResponse->error = '除了最后一块Part，其他Part的大小不能大于4M';
         }
+        return $chunkResponse;
     }
 
-    public function deleteFile($object)
+    /**
+     *
+     * {@inheritdoc}
+     * @see \dungang\storage\IDriver::delete()
+     */
+    public function delete($key)
     {
         $bucketManager = new BucketManager($this->auth);
-        if ($bucketManager->delete($this->bucket, $object)) {
+        if ($bucketManager->delete($this->bucket, $key)) {
             return false;
         }
         return true;
     }
 
     /**
-     * @param int|string|null $start
+     *
+     * @param
+     *            mix
      * @param int $size
-     * @return array
+     * @return ListResponse
      */
     public function listFiles($start = null, $size = 10)
     {
-        if($start === 0 ) $start = null;
-        $result = [
-            "code" => 0
-        ];
+        if ($start === 0)
+            $start = null;
+        $response = new ListResponse();
+        $response->size = $size;
+
         $bucketManager = new BucketManager($this->auth);
-        $prefix = $this->getSavePath();
-        list($items,$maker,$error) = $bucketManager->listFiles($this->bucket,$prefix,$start,$size);
-        if ($error) {
-            $result['code'] = self::ERROR_FILE_NOT_FOUND;
-            $result['message'] = $error;
-        } else {
-            $result['list'] = $this->formatListObject($items);
-            $result['start'] = $maker;
-        }
-        return $result;
+        list ($items, $maker, $error) = $bucketManager->listFiles($this->bucket, $this->uploadDir, $start, $size);
+
+        $response->list = $this->formatListObject($items);
+        $response->start = $maker;
+
+        return $response;
     }
-
-    protected function formatListObject($items)
-    {
-        return array_map(function($item){
-            return [
-                'object'=>$item['key'],
-                'url'=>$this->getBindUrl($item['key'])
-            ];
-        },$items);
-    }
-
-    public function getSourceUrl($object)
-    {
-        return $this->config['sourceBaseUrl'] . '/' . ltrim($object, '/');
-    }
-
-    public function getBindUrl($object)
-    {
-        return $this->config['bindBaseUrl'] . '/' . ltrim($object, '/');
-    }
-
-
 }
