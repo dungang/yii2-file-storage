@@ -32,15 +32,15 @@ composer require dungang/yii2-file-storage
 	   |    uploadId,key           |
 	   |<--------------------------|
 	   |                           |
-	   |       upload chunk-1      | 
+	   |  uploadId key chunk-1     | 
 	   |-------------------------->|
 	   |       isCompleted=false   |
 	   |<--------------------------|
-	   |       upload chunk-n      |
+	   |  uploadId key chunk-n     |
 	   |-------------------------->|
 	   |       isCompleted=true    |
 	   |<--------------------------|
-	   |					       |
+       |                           |
 	   
 > 1.配置控制器
 
