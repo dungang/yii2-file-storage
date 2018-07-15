@@ -1,157 +1,202 @@
 # file-storage
-文件存储集合，本地存储，阿里云oss，七牛
+文件存储集合，本地存储，阿里云oss，七牛。
+
+##  重构
+
+阿里云和七牛在处理分片合并的时候是需要API的明确的告诉之前的分片信息的。
+之前在处理阿里云和七牛的分片上传的时候，如果是文件不大，分片不多，可以正常。合并的参数是通过请求响应来合传递的。而且是强制约束按照时间顺序单线程执行，效率不高。
+
+重构后，支持并发多线程请求上传分片数据。但是七牛还是单线程顺序执行（否则会导致合并参数丢失或覆盖）
 
 > 安装
 
-```
+```shell
 composer require dungang/yii2-file-storage
 
 ```
 
-> 使用方法
+## 关于uploadId
 
-配置为一个对象的属性
+* 全局唯一
+* 最好每次打开上传的窗口重新生成
+* 如果网站的上传图片并发不高，可以使用`UUID`来生成
+* 如果并发高可以考虑面向服务的全局id生成器，比如`snowflake算法`
 
-```
-'webuploader'=>[
-    'class'=>'dungang\webuploader\Module',
-//下面是默认配置    
-//    [
-        /**
-         * @var array 访问角色 默认是登录用户才可以
-         */
-//        role => ['@'],
-         
-        /**
-         * @var string 上传文件的驱动
-         */
-//        'driver' => 'dungang\storage\driver\Local',
-//        'driver' => [
-                'class'=>'dungang\storage\driver\AliYunOSS',
-                //Yii::$app->params['oss']
-                'paramKey'=>'oss'
-            ],
-    
-        /**
-         * @var string 上传文件保存的相对路径
-         */
-//        'saveDir' => '/upload/webuploader',
-    
-        /**
-         * @var array 接受的文件类型
-         */
-//        'accept' => ['gif','jpg','png','bmp','docx','doc','ppt','xsl','rar','zip','7z']
-//    ]
-],
-    
-```
+## 使用方法
 
-> 驱动扩展
+> 1.配置控制器
 
-所有的驱动必须继承 `dungang\storage\Driver` 类.
+- 本地存储
 
-如：实现本地文件的驱动
+```php
 
-```
-<?php
-/**
- * Created by PhpStorm.
- * User: dungang
- * Date: 2017/3/2
- * Time: 11:24
- */
-
-namespace dungang\storage\components;
-
-use yii\helpers\BaseFileHelper;
-use dungang\storage\Driver;
-
-class Local extends Driver
-{
-    /**
-     * @return bool|string
-     */
-    public function writeFile()
-    {
-        $fileName = md5($this->guid . $this->id);
-
-        $file = $fileName . '.' . $this->file->extension;
-
-        $dir = $this->saveDir .DIRECTORY_SEPARATOR. date('Y-m-d');
-
-        $path =  \Yii::getAlias('@webroot') . DIRECTORY_SEPARATOR . $dir;
-
-        $position = 0;
-
-        if (BaseFileHelper::createDirectory($path))
-        {
-            $targetFile = $path . DIRECTORY_SEPARATOR . $file;
-            if($this->chunked) {
-                if ($this->chunk === 0 ) {
-                    $position = 0;
-                    if (file_exists($targetFile)) {
-                        @unlink($targetFile);
-                    }
-                } else {
-                    $position = $this->chunkSize * $this->chunk;
-                }
-            }
-            if($out = @fopen($targetFile,'a+b')){
-                fseek($out,$position);
-                if ( flock($out, LOCK_EX) ) {
-                    if ($in = fopen($this->file->tempName, 'rb')) {
-                        while ($buff = fread($in, 4096)) {
-                            fwrite($out, $buff);
-                        }
-                        @fclose($in);
-                        @unlink($this->file->tempName);
-                    }
-                    flock($out, LOCK_UN);
-                }
-                @fclose($out);
-                return $this->response(BaseFileHelper::normalizePath( $dir . DIRECTORY_SEPARATOR . $file));
-            }
-
-        }
-        return $this->response(null,500,'Upload failed');
-    }
-
-    public function deleteFile($file)
-    {
-        $file = BaseFileHelper::normalizePath(ltrim($file,'/\\'));
-        $dir = BaseFileHelper::normalizePath(ltrim($this->saveDir,'/\\'));
-        $prefix = substr($file,0,strlen($dir));
-        if (strcasecmp($prefix,$dir)==0) {
-            $path = \Yii::getAlias('@webroot') . DIRECTORY_SEPARATOR . $file;
-            return @unlink($path);
-        }
-        return false;
-    }
-
-    public function getSourceUrl($object)
-    {
-        return \Yii::$app->basePath . '/' . ltrim($object,'/');
-    }
-
-    public function getBindUrl($object)
-    {
-        return $this->getSourceUrl($object);
-    }
-
-
+Class LocalController extends Controller {
+	public function actions(){
+		return [
+			'init-upload'=>[
+				'class'=>'dungang\storage\InitAction'
+				'
+			],
+			'chunk-upload'=>[
+				'class'=>'dungang\storage\ChunkUploadAction'
+			],
+			'delete'=>[
+				'class'=>'dungang\storage\DeleteAction'
+			],
+		];
+	}
 }
 ```
 
-> 修改 php.ini
+- 使用阿里云
 
+```php
+class OssController extends Controller {
+	private $storageConfig = [
+		'class'=>'dungang\storage\driver\AliyunOSS',
+		'accessKey'=>'xxxx',
+		'accessSecret'=>'xxxxxx',
+		'endpoit'=>'http://hangzhou.oss.aliyun.com',
+		'bucket'=>'bucketName',
+		'imageBaseUrl'=>'http://bucket.hangzhou.oss.aliyun.com',
+		'fileBaseUrl'=>'http://bucket.hangzhou.oss.aliyun.com',
+		'dirSuffix'=> date('Y-m-d')
+	];
+	public function actions(){
+		return [
+			'init-upload'=>[
+				'class'=>'dungang\storage\InitAction',
+				'storageConfig'=>$this->storageConfig,
+			],
+			'chunk-upload'=>[
+				'class'=>'dungang\storage\ChunkUploadAction',
+				'storageConfig'=>$this->storageConfig
+			],
+			'delete'=>[
+				'class'=>'dungang\storage\DeleteAction',
+				'storageConfig'=>$this->storageConfig
+			],
+		];
+	}
+}
 ```
+
+> 2. 获取文件上传的服务器参数
+
+
+|参数	|required	|说明											|
+|-------|:---------	|:----------------------------------------------|
+|name	|必须		|原始文件名称,包括文件后缀							|
+|type	|必须		|文件类型,image/jpeg								|
+|timestamp|必须		|时间戳，同一个页面可以使用同一个时间戳			|
+
+前端以fex-webuploader 为例
+
+```javascript
+//当前页面，生成时间戳
+int timestamp = Math.round(new Date().getTime()/1000);
+//每次发送文件的时候，获取上传的初始化参数
+WebUploader.Uploader.register({'before-send-file':'initUpload'},{
+	initUpload:function(file) {
+		var deferred = $.ajax({
+			method:'post',
+			url:'/?r=oss/init-upload',
+			dataType:'json',
+			data: {
+				name: file.name,
+				type: file.type,
+				timestamp: timestamp
+			}
+		}).then(function(res){
+			console.log(res);
+			file.uploadId = res.uploadId
+			file.key = res.key
+		});
+		return deferred.promise();
+	}
+});
+```
+
+后端
+
+```php
+'init-upload'=>[
+	'class'=>'dungang\storage\InitAction',
+	'storageConfig'=>$this->storageConfig,
+	'
+],
+```
+结果类似
+```json
+{
+	"uploadId":"370af9d2-c565-4b8e-9fa4-186d150affab",
+	"key":"uploader\\test\\905cd7faa06cee41e0deb1a0502a868c.jpg"
+}
+```
+
+> 3.处理上传的数据
+
+|参数	|required	|说明											|
+|-------|:---------	|:----------------------------------------------|
+|uploadId|必须		|每次发起上传文件前获取一个服务器`全局唯一`id，每个文件的uploadId是不同的|
+|key	|必须		|是在服务器分配uploadId的时候同步返回的，是文件最终存储的路径|
+|name	|必须		|原始文件名称,包括文件后缀							|
+|size	|必须		|原始文件的大小									|
+|type	|必须		|文件类型,image/jpeg								|
+|chunks	|分片时必须	|分片总数量										|
+|chunk	|分片时必须	|本次请求的分片的序号，从0开始						|
+
+前端以fex-webuploader 为例
+
+```javascript
+// 每个分片 发送之前
+// 很重要, 配合最开始注册的 promise . 'before-send-file':'initUpload'
+uploader.on('uploadBeforeSend',function(block,data,headers){
+	data.uploadId = block.file.uploadId;
+	data.key = block.file.key;
+});
+```
+
+后端
+
+```php
+'chunk-upload'=>[
+	'class'=>'dungang\storage\ChunkUploadAction',
+	'storageConfig'=>array_merge([
+		'behaviors'=>[
+			'saveImageInfo'=>'可以配置自己实现的行为,比如保存图片的信息，通过event->payload获取ChunkResponse对象实例'
+		],
+	],$this->storageConfig)
+],
+```
+结果，以实际获得的结果为准
+```json
+{
+	"isOk":true,
+	"error":"",
+	"key":"uploader\\test\\905cd7faa06cee41e0deb1a0502a868c.jpg",
+	"uploadId":"370af9d2-c565-4b8e-9fa4-186d150affab",
+	"completed":false //表示还没完成此文件所有的分片上传
+}
+
+
+{
+	"isOk":true,
+	"error":"",
+	"key":"uploader\\test\\905cd7faa06cee41e0deb1a0502a868c.jpg",
+	"uploadId":"370af9d2-c565-4b8e-9fa4-186d150affab",
+	"completed":true //表示已完成此文件所有的分片上传
+}
+```
+
+
 ## 七牛存储必须设置为4m 所以 至少是4m
 upload_max_filesize = 4M  
 post_max_size = 8M
 
 ```
 
-> 注意事项
+## 注意事项
 
 - 本模块对qiniu存储的分片上传功能做了重构。保留之前的类。
     * qiniu的分片上传的前提是文件必须上传到服务器之后，在分片传到qiniu服务器

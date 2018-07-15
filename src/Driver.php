@@ -364,7 +364,7 @@ abstract class Driver extends Component implements IDriver
         } else {
             $initResponse = new InitResponse();
             $initResponse->isOk = false;
-            $initResponse->error = 'not allowed to upload file type';
+            $chunkResponse->error = '不允许上传' . $req->type . '的文件';
         }
         return $initResponse;
     }
@@ -404,7 +404,7 @@ abstract class Driver extends Component implements IDriver
             $chunkResponse->uploadId = $chunkRequest->uploadId;
             $chunkResponse->key = $chunkRequest->key;
             $chunkResponse->isOk = false;
-            $chunkResponse->error = 'not allowed to upload file type';
+            $chunkResponse->error = '不允许上传' . $chunkResponse->type . '的文件';
         } else {
             $this->beforeWrite($chunkRequest);
             $chunkResponse = $this->write($chunkRequest);
