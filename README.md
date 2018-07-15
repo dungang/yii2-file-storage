@@ -24,6 +24,24 @@ composer require dungang/yii2-file-storage
 
 ## 使用方法
 
+	client                      server
+	-------                  --------------
+	   |                           |
+	   |        init upload        |
+	   |-------------------------->|
+	   |    uploadId,key           |
+	   |<--------------------------|
+	   |                           |
+	   |       upload chunk-1      | 
+	   |-------------------------->|
+	   |       isCompleted=false   |
+	   |<--------------------------|
+	   |       upload chunk-n      |
+	   |-------------------------->|
+	   |       isCompleted=true    |
+	   |<--------------------------|
+	   |					       |
+	   
 > 1.配置控制器
 
 - 本地存储
@@ -35,7 +53,6 @@ Class LocalController extends Controller {
 		return [
 			'init-upload'=>[
 				'class'=>'dungang\storage\InitAction'
-				'
 			],
 			'chunk-upload'=>[
 				'class'=>'dungang\storage\ChunkUploadAction'
