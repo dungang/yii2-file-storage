@@ -189,12 +189,16 @@ uploader.on('uploadBeforeSend',function(block,data,headers){
 }
 ```
 
+## 阿里云
 
-## 七牛存储必须设置为4m 所以 至少是4m
+分片大小至少100kb，除最后一块
+
+## 七牛
+
+分片大小必须设置为4m 所以 至少是4m
 upload_max_filesize = 4M  
 post_max_size = 8M
 
-```
 
 ## 注意事项
 
@@ -204,7 +208,8 @@ post_max_size = 8M
 - 当使用qiniu对象存储的的分片上传的功能时，分片的大小必须是4m。
 
 
-> 协议
+## 协议
+
 
 MIT License
 
