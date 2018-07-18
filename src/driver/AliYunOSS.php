@@ -6,6 +6,8 @@ use dungang\storage\ChunkRequest;
 use dungang\storage\InitRequest;
 use dungang\storage\ChunkResponse;
 use dungang\storage\ListResponse;
+use OSS\OssClient;
+use dungang\storage\InitResponse;
 
 class AliyunOSS extends Driver
 {
@@ -86,19 +88,20 @@ class AliyunOSS extends Driver
             $listPartsInfo = $this->ossClient->listParts($this->bucket, $chunkResponse->key, $chunkResponse->uploadId);
 
             if ($listPartsInfo && $partInfos = $listPartsInfo->getListPart()) {
-                $parts = [];
-                foreach ($partInfos as $partInfo) {
-                    $parts[] = [
-                        'PartNumber' => $partInfo['PartNumber'],
-                        'eTag' => $partInfo['eTag']
-                    ];
-                }
-
-                $chunkResponse->eTag = $this->ossClient->completeMultipartUpload($this->bucket, $chunkResponse->key, $chunkResponse->uploadId, $parts);
-
-                if (null != $chunkResponse->eTag) {
-                    $chunkResponse->isCompleted = true;
-                    $chunkResponse->url = $this->getKeyUrl($chunkResponse->type, $chunkResponse->key);
+                
+                if(count($partInfos) == $chunkRequest->chunks ){
+                    $parts = [];
+                    foreach ($partInfos as $partInfo) {
+                        $parts[] = [
+                            'PartNumber' => $partInfo->getPartNumber(),
+                            'ETag' => $partInfo->getETag(),
+                        ];
+                    }
+                    $chunkResponse->eTag = $this->ossClient->completeMultipartUpload($this->bucket, $chunkResponse->key, $chunkResponse->uploadId, $parts);
+                    if (null != $chunkResponse->eTag) {
+                        $chunkResponse->isCompleted = true;
+                        $chunkResponse->url = $this->getKeyUrl($chunkResponse->type, $chunkResponse->key);
+                    }
                 }
             }
         } else {

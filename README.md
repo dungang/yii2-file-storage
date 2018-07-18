@@ -69,29 +69,29 @@ Class LocalController extends Controller {
 
 ```php
 class OssController extends Controller {
-	private $storageConfig = [
+	private $driverConfig = [
 		'class'=>'dungang\storage\driver\AliyunOSS',
 		'accessKey'=>'xxxx',
 		'accessSecret'=>'xxxxxx',
-		'endpoit'=>'http://hangzhou.oss.aliyun.com',
+		'endpoint'=>'http://oss-cn-shenzhen.aliyuncs.com',
 		'bucket'=>'bucketName',
-		'imageBaseUrl'=>'http://bucket.hangzhou.oss.aliyun.com',
-		'fileBaseUrl'=>'http://bucket.hangzhou.oss.aliyun.com',
+		'imageBaseUrl'=>'http://bucketName.oss-cn-shenzhen.aliyuncs.com',
+		'fileBaseUrl'=>'http://bucketName.oss-cn-shenzhen.aliyuncs.com',
 		'dirSuffix'=> date('Y-m-d')
 	];
 	public function actions(){
 		return [
 			'init-upload'=>[
 				'class'=>'dungang\storage\InitAction',
-				'storageConfig'=>$this->storageConfig,
+				'driverConfig'=>$this->driverConfig,
 			],
 			'chunk-upload'=>[
 				'class'=>'dungang\storage\ChunkUploadAction',
-				'storageConfig'=>$this->storageConfig
+				'driverConfig'=>$this->driverConfig
 			],
 			'delete'=>[
 				'class'=>'dungang\storage\DeleteAction',
-				'storageConfig'=>$this->storageConfig
+				'driverConfig'=>$this->driverConfig
 			],
 		];
 	}
@@ -139,7 +139,7 @@ WebUploader.Uploader.register({'before-send-file':'initUpload'},{
 ```php
 'init-upload'=>[
 	'class'=>'dungang\storage\InitAction',
-	'storageConfig'=>$this->storageConfig,
+	'driverConfig'=>$this->driverConfig,
 	'
 ],
 ```
@@ -179,11 +179,11 @@ uploader.on('uploadBeforeSend',function(block,data,headers){
 ```php
 'chunk-upload'=>[
 	'class'=>'dungang\storage\ChunkUploadAction',
-	'storageConfig'=>array_merge([
+	'driverConfig'=>array_merge([
 		'behaviors'=>[
 			'saveImageInfo'=>'可以配置自己实现的行为,比如保存图片的信息，通过event->payload获取ChunkResponse对象实例'
 		],
-	],$this->storageConfig)
+	],$this->driverConfig)
 ],
 ```
 结果，以实际获得的结果为准

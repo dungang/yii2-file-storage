@@ -51,7 +51,28 @@ class Local extends Driver
             // 48 bits for "node"
             mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
     }
-    
+
+    protected function getFileChunks($basePath, $path = null)
+    {
+        $readPath = $basePath . DIRECTORY_SEPARATOR . $path;
+        if (! is_dir($readPath)) {
+            return null;
+        }
+        $handle = opendir($readPath);
+        while (false !== ($file = readdir($handle))) {
+            if ($file != '.' && $file != '..') {
+                $path2 = $path . DIRECTORY_SEPARATOR. $file;
+                if (is_dir($path2)) {
+                    continue;
+                } else {
+                    $files[] = array(
+                        'object' => $this->normalizeWebPath($path2)
+                    );
+                }
+            }
+        }
+        return $files;
+    }
 
     /**
      * 遍历获取目录下的指定类型的文件
@@ -78,7 +99,7 @@ class Local extends Driver
                     $extension = strtolower(substr(strrchr($file, '.'), 1));
                     if (in_array($extension, $this->accept)) {
                         $files[] = array(
-                            'object' =>$this->normalizeWebPath($path2)
+                            'object' => $this->normalizeWebPath($path2)
                         );
                     }
                 }
@@ -152,7 +173,7 @@ class Local extends Driver
             }
 
             $chunkRequest->uploadFile->saveAs($chunksDir . DIRECTORY_SEPARATOR . $chunkRequest->chunk);
-            $chunkFiles = $this->getFiles($parentDir, $chunkRequest->uploadId);
+            $chunkFiles = $this->getFileChunks($parentDir, $chunkRequest->uploadId);
             if (count($chunkFiles) == $chunkRequest->chunks) {
                 // 合并文件
                 for ($i = 0; $i < $chunkRequest->chunks; $i ++) {
@@ -163,6 +184,7 @@ class Local extends Driver
                 $chunkResponse->isCompleted = true;
                 $chunkResponse->eTag = md5_file($abKeyFile);
                 $chunkResponse->url = $this->getKeyUrl($chunkResponse->type, $chunkResponse->key);
+                BaseFileHelper::removeDirectory($parentDir . DIRECTORY_SEPARATOR .$chunkRequest->uploadId);
             }
         }
         return $chunkResponse;

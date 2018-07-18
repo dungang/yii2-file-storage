@@ -357,14 +357,14 @@ abstract class Driver extends Component implements IDriver
         $req->type = $httpReq->post('type');
         $req->timestamp = $httpReq->post('timestamp');
         $extension = $this->fileExtension($req->name);
-        if (null == $this->accept || (null != $this->accept && ! in_array($extension, $this->accept))) {
+        if (null == $this->accept || (null != $this->accept && in_array($extension, $this->accept))) {
             $this->beforeInit($req);
             $initResponse = $this->initUpload($req);
             $this->afterInit($initResponse);
         } else {
             $initResponse = new InitResponse();
             $initResponse->isOk = false;
-            $chunkResponse->error = '不允许上传' . $req->type . '的文件';
+            $initResponse->error = '不允许上传' . $req->type . '的文件';
         }
         return $initResponse;
     }
@@ -435,7 +435,7 @@ abstract class Driver extends Component implements IDriver
 
     public function afterInit($initResponse)
     {
-        $this->trigger(self::EVENT_AFTER_INIT_UPLOADER, new E([
+        $this->trigger(self::EVENT_AFTER_INIT_UPLOADER, new StorageEvent([
             'payload' => $initResponse
         ]));
     }

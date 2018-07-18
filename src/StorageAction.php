@@ -27,7 +27,6 @@ abstract class StorageAction extends Action
     public $driver;
     
     public function init() {
-        
         if (null == $this->driverConfig) {
             $this->driver = \Yii::createObject(Local::className());
         } else {
